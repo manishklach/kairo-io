@@ -6,6 +6,11 @@ Kairo is an internal Linux-kernel RFC/POC exploring AI KV-cache-aware block I/O 
 
 This project is not intended for LKML submission at this stage.
 
+## License
+
+Kairo is licensed under [GPL-2.0-only](LICENSE) to stay aligned with the
+kernel-facing patch workflow in this RFC/POC repository.
+
 ## Scope
 
 Kairo explores whether Linux block-layer changes can improve generic NVMe SSD behavior for AI inference-like KV-cache workloads. The current proof point is decode-read prioritization under mixed read and write pressure, but the architecture remains broader than a single scheduler tweak.
