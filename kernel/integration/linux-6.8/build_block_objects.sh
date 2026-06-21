@@ -27,13 +27,13 @@ if ! make -C "$LINUX_TREE" olddefconfig; then
   exit 1
 fi
 
-echo "[kairo] building block/mq-deadline.o with $JOBS job(s)"
-if make -C "$LINUX_TREE" -j"$JOBS" block/mq-deadline.o; then
-  echo "[kairo] block/mq-deadline.o build completed"
+echo "[kairo] building foundation block objects with $JOBS job(s)"
+if make -C "$LINUX_TREE" -j"$JOBS" block/blk-mq.o block/mq-deadline.o; then
+  echo "[kairo] block/blk-mq.o and block/mq-deadline.o build completed"
   exit 0
 fi
 
-echo "[kairo] focused block object build failed" >&2
-echo "[kairo] local fallback: make -C \"$LINUX_TREE\" M=block block/mq-deadline.o" >&2
+echo "[kairo] focused foundation build failed" >&2
+echo "[kairo] local fallback: make -C \"$LINUX_TREE\" M=block block/blk-mq.o block/mq-deadline.o" >&2
 echo "[kairo] if the tree rejects direct object targets, use the tree's normal local block build flow and record it in docs/tested_kernel_matrix.md" >&2
 exit 1

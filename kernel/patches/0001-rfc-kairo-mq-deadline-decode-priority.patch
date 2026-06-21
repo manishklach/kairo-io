@@ -1,5 +1,5 @@
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
-index 02a916b..4d7aa75 100755
+index 02a916b..3ac24de 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
 @@ -37,6 +37,10 @@ static const int prio_aging_expire = 10 * HZ;
@@ -24,41 +24,7 @@ index 02a916b..4d7aa75 100755
  };
  
  /* Maps an I/O priority class to a deadline scheduler priority. */
-@@ -128,6 +136,33 @@ static u8 dd_rq_ioclass(struct request *rq)
- 	return IOPRIO_PRIO_CLASS(req_get_ioprio(rq));
- }
- 
-+static inline bool dd_kairo_is_decode_read(struct request *rq)
-+{
-+	unsigned short ioprio = req_get_ioprio(rq);
-+
-+	return rq_data_dir(rq) == READ &&
-+	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
-+	       IOPRIO_PRIO_DATA(ioprio) == 0;
-+}
-+
-+static inline bool dd_kairo_is_prefetch_read(struct request *rq)
-+{
-+	unsigned short ioprio = req_get_ioprio(rq);
-+
-+	return rq_data_dir(rq) == READ &&
-+	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
-+	       IOPRIO_PRIO_DATA(ioprio) == 1;
-+}
-+
-+static inline bool dd_kairo_is_prefill_write(struct request *rq)
-+{
-+	unsigned short ioprio = req_get_ioprio(rq);
-+
-+	return rq_data_dir(rq) == WRITE &&
-+	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
-+	       IOPRIO_PRIO_DATA(ioprio) == 7;
-+}
-+
- /*
-  * get the request before `rq' in sector-sorted order
-  */
-@@ -585,6 +620,50 @@ static struct request *dd_dispatch_prio_aged_requests(struct deadline_data *dd,
+@@ -585,6 +589,36 @@ static struct request *dd_dispatch_prio_aged_requests(struct deadline_data *dd,
  	return NULL;
  }
  
@@ -74,7 +40,7 @@ index 02a916b..4d7aa75 100755
 +		return NULL;
 +
 +	list_for_each_entry(rq, &per_prio->dispatch, queuelist) {
-+		if (!dd_kairo_is_decode_read(rq))
++		if (!kairo_is_decode_read(rq))
 +			continue;
 +		if (started_after(dd, rq, latest_start))
 +			return NULL;
@@ -83,19 +49,15 @@ index 02a916b..4d7aa75 100755
 +	}
 +
 +	list_for_each_entry(rq, &per_prio->fifo_list[DD_READ], queuelist) {
-+		if (!dd_kairo_is_decode_read(rq))
++		if (!kairo_is_decode_read(rq))
 +			continue;
 +		if (started_after(dd, rq, latest_start))
 +			return NULL;
-+		dd->last_dir = DD_READ;
-+		dd->batching = 0;
-+		dd->batching++;
 +		deadline_move_request(dd, per_prio, rq);
 +		goto done;
 +	}
 +
 +	return NULL;
-+
 +done:
 +	dd->kairo_decode_budget_used++;
 +	dd->kairo_decode_dispatches++;
@@ -109,7 +71,7 @@ index 02a916b..4d7aa75 100755
  /*
   * Called from blk_mq_run_hw_queue() -> __blk_mq_sched_dispatch_requests().
   *
-@@ -601,6 +680,10 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -601,6 +635,10 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	enum dd_prio prio;
  
  	spin_lock(&dd->lock);
@@ -120,15 +82,16 @@ index 02a916b..4d7aa75 100755
  	rq = dd_dispatch_prio_aged_requests(dd, now);
  	if (rq)
  		goto unlock;
-@@ -615,6 +698,17 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -615,6 +653,17 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  			break;
  	}
  
 +	if (kairo_enable) {
-+		if (rq && !dd_kairo_is_decode_read(rq)) {
++		if (rq && !kairo_is_decode_read(rq)) {
 +			dd->kairo_decode_budget_used = 0;
 +			dd->kairo_normal_dispatches++;
-+			if (rq_data_dir(rq) == WRITE && dd_queued(dd, DD_RT_PRIO))
++			if ((kairo_is_prefill_write(rq) || rq_data_dir(rq) == WRITE) &&
++			    dd_queued(dd, DD_RT_PRIO))
 +				dd->kairo_starvation_escapes++;
 +		} else if (!rq) {
 +			dd->kairo_decode_budget_used = 0;
@@ -138,7 +101,7 @@ index 02a916b..4d7aa75 100755
  unlock:
  	spin_unlock(&dd->lock);
  
-@@ -985,6 +1079,41 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
+@@ -985,6 +1034,41 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
  #undef SHOW_INT
  #undef SHOW_JIFFIES
  
@@ -180,7 +143,7 @@ index 02a916b..4d7aa75 100755
  #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
  static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
  {									\
-@@ -1016,6 +1145,34 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
+@@ -1016,6 +1100,34 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
  #undef STORE_INT
  #undef STORE_JIFFIES
  
@@ -215,7 +178,7 @@ index 02a916b..4d7aa75 100755
  #define DD_ATTR(name) \
  	__ATTR(name, 0644, deadline_##name##_show, deadline_##name##_store)
  
-@@ -1027,6 +1184,13 @@ static struct elv_fs_entry deadline_attrs[] = {
+@@ -1027,6 +1139,13 @@ static struct elv_fs_entry deadline_attrs[] = {
  	DD_ATTR(async_depth),
  	DD_ATTR(fifo_batch),
  	DD_ATTR(prio_aging_expire),
@@ -228,5 +191,3 @@ index 02a916b..4d7aa75 100755
 +	__ATTR_RO(kairo_starvation_escapes),
  	__ATTR_NULL
  };
- 
-

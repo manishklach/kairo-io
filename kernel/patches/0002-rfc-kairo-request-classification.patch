@@ -1,30 +1,31 @@
 From 2222222222220000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kairo POC <kairo-poc@local>
-Date: Sun, 21 Jun 2026 14:05:00 -0700
-Subject: [RFC/POC PATCH 2/9] block: add internal Kairo request classification
+Date: Sun, 21 Jun 2026 15:20:00 -0700
+Subject: [RFC/POC PATCH 2/9] block: add Kairo request classification helpers
 
 Subsystem touched:
 - `include/linux/blk_types.h`
 - `include/linux/blk-mq.h`
 - `block/blk-mq.c`
-- `block/mq-deadline.c`
 
 New Kairo concept:
-- an internal request class describing decode, prefetch, prefill, evict, and
-  normal traffic without designing a permanent UAPI
+- a local RFC/POC request-hint structure and shared classification helpers
 
 Relation to AI KV-cache traffic:
-- allows Kairo-aware schedulers to reason about decode-critical reads and
-  background prefill/eviction traffic consistently
+- decode, prefetch, prefill, and eviction paths need one shared interpretation
+  of request intent before schedulers can make Kairo-aware dispatch choices
 
 Temporary implementation:
-- classify from request `ioprio` plus request op
+- derive Kairo class from existing request op and `ioprio`
+- attach a local `kairo_request_hints` field to `struct request`
+- initialize the hints during `blk_mq_rq_ctx_init()` for Linux 6.8.x
 
 Still to validate:
-- whether the helper belongs in `blk-mq` core or a smaller scheduler-local layer
+- whether the selected request init hook remains the best insertion point across
+  nearby kernel versions
 
 diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
-index 31c4b1b..4700abc 100644
+index 31c4b1b..631af67 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
 @@
@@ -39,15 +40,13 @@ index 31c4b1b..4700abc 100644
 +
 +struct kairo_request_hints {
 +	enum kairo_io_class io_class;
-+	u32 model_id;
-+	u32 session_id;
-+	u32 cache_pool_id;
-+	u32 lifetime_class;
++	u64 kairo_deadline_ns;
++	u32 kairo_prefetch_distance;
 +	u32 flags;
 +};
 +
  diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
- index 8dca8f1..54b0eef 100644
+ index 8dca8f1..7d6c9f2 100644
  --- a/include/linux/blk-mq.h
  +++ b/include/linux/blk-mq.h
  @@
@@ -55,7 +54,7 @@ index 31c4b1b..4700abc 100644
 +{
 +	unsigned short ioprio = req_get_ioprio(rq);
 +
-+	if (op_is_discard(req_op(rq)))
++	if (req_op(rq) == REQ_OP_DISCARD || req_op(rq) == REQ_OP_WRITE_ZEROES)
 +		return KAIRO_IO_EVICT;
 +
 +	if (rq_data_dir(rq) == READ &&
@@ -73,65 +72,56 @@ index 31c4b1b..4700abc 100644
 +	    IOPRIO_PRIO_DATA(ioprio) == 7)
 +		return KAIRO_IO_PREFILL_WRITE;
 +
-+	if (rq_data_dir(rq) == READ || rq_data_dir(rq) == WRITE)
++	if (op_is_write(req_op(rq)) || op_is_sync(req_op(rq)) || rq_data_dir(rq) == READ)
 +		return KAIRO_IO_NORMAL;
 +
 +	return KAIRO_IO_NONE;
 +}
 +
++static inline void kairo_init_request_hints(struct request *rq)
++{
++	memset(&rq->kairo_hints, 0, sizeof(rq->kairo_hints));
++	rq->kairo_hints.io_class = kairo_classify_rq(rq);
++}
++
++static inline bool kairo_is_decode_read(struct request *rq)
++{
++	return rq->kairo_hints.io_class == KAIRO_IO_DECODE_READ;
++}
++
++static inline bool kairo_is_prefetch_read(struct request *rq)
++{
++	return rq->kairo_hints.io_class == KAIRO_IO_PREFETCH_READ;
++}
++
++static inline bool kairo_is_prefill_write(struct request *rq)
++{
++	return rq->kairo_hints.io_class == KAIRO_IO_PREFILL_WRITE;
++}
++
++static inline bool kairo_is_evict(struct request *rq)
++{
++	return rq->kairo_hints.io_class == KAIRO_IO_EVICT;
++}
+@@
++	struct kairo_request_hints	kairo_hints;
++
  diff --git a/block/blk-mq.c b/block/blk-mq.c
- index c4aab7c..4ef6033 100644
+ index c4aab7c..c04b617 100644
  --- a/block/blk-mq.c
  +++ b/block/blk-mq.c
  @@
 +static void blk_mq_kairo_init_request(struct request *rq)
 +{
 +	/*
-+	 * Local RFC/POC: use ioprio-derived classification until a more direct
-+	 * io_uring or kiocb hint path is validated.
++	 * Linux 6.8.x local RFC/POC:
++	 * initialize request-local Kairo hints during blk-mq request context
++	 * setup so schedulers can consume one shared classification path.
 +	 */
-+	rq->kairo_hints.io_class = kairo_classify_rq(rq);
++	kairo_init_request_hints(rq);
 +}
- @@
+@@
   void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
   {
 +	blk_mq_kairo_init_request(rq);
-  }
-
- diff --git a/block/mq-deadline.c b/block/mq-deadline.c
- index 4d7aa75..701fabc 100644
- --- a/block/mq-deadline.c
- +++ b/block/mq-deadline.c
- @@
--static inline bool dd_kairo_is_decode_read(struct request *rq)
-+static inline bool dd_kairo_is_decode_read(struct request *rq)
-  {
--	unsigned short ioprio = req_get_ioprio(rq);
--
--	return rq_data_dir(rq) == READ &&
--	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
--	       IOPRIO_PRIO_DATA(ioprio) == 0;
-+	return kairo_classify_rq(rq) == KAIRO_IO_DECODE_READ;
-  }
-@@
--static inline bool dd_kairo_is_prefetch_read(struct request *rq)
-+static inline bool dd_kairo_is_prefetch_read(struct request *rq)
-  {
--	unsigned short ioprio = req_get_ioprio(rq);
--
--	return rq_data_dir(rq) == READ &&
--	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
--	       IOPRIO_PRIO_DATA(ioprio) == 1;
-+	return kairo_classify_rq(rq) == KAIRO_IO_PREFETCH_READ;
-  }
-@@
--static inline bool dd_kairo_is_prefill_write(struct request *rq)
-+static inline bool dd_kairo_is_prefill_write(struct request *rq)
-  {
--	unsigned short ioprio = req_get_ioprio(rq);
--
--	return rq_data_dir(rq) == WRITE &&
--	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
--	       IOPRIO_PRIO_DATA(ioprio) == 7;
-+	return kairo_classify_rq(rq) == KAIRO_IO_PREFILL_WRITE;
   }

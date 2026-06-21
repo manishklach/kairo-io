@@ -1,38 +1,44 @@
-# Kairo Linux 6.8 Integration Harness
+# Kairo Linux 6.8 Foundation Harness
 
-This directory contains the local validation harness for Kairo's experimental
-`mq-deadline` patch on Linux 6.8.x trees.
+This directory contains the local validation harness for the Kairo Stage 1
+foundation stack on Linux 6.8.x trees.
 
-Kairo is an internal RFC/POC. These scripts are intended for benchmark-driven
-local validation on generic NVMe SSDs, not for upstream submission flow.
+Kairo is an internal RFC/POC. These scripts are intended for local,
+benchmark-driven validation on generic NVMe SSDs.
 
-## Expected Inputs
+## Foundation Stack
 
-- a Linux 6.8.x source tree path
-- the Kairo repo checkout
-- a local test machine where you can build kernel objects
+The current compile-targeted foundation stack is:
+
+- `0002-rfc-kairo-request-classification.patch`
+- `0001-rfc-kairo-mq-deadline-decode-priority.patch`
+- `0009-rfc-kairo-sysfs-debug-counters.patch`
+
+This stage is meant to make request classification, decode-read scheduler
+priority, and aligned sysfs counters coherent before moving deeper into later
+RFC-only patches.
 
 ## Scripts
 
 - `apply_kairo_patch.sh`
-  - runs `git apply --check` against the selected kernel tree
-  - applies `kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch` on success
+  - checks and applies the Stage 1 foundation patches in stack order
 - `validate_patch.sh`
-  - confirms the expected Kairo symbols are present in `block/mq-deadline.c`
+  - confirms the expected request-classification helpers, scheduler hooks, and
+    sysfs counter symbols are present in the Linux tree
 - `build_block_objects.sh`
-  - runs `make olddefconfig` and a focused `block/mq-deadline.o` build when possible
-- `expected_sysfs.md`
-  - documents the expected scheduler sysfs files after booting a patched kernel
+  - runs `make olddefconfig`
+  - attempts focused builds of `block/blk-mq.o` and `block/mq-deadline.o`
 
 ## Suggested Flow
 
 ```bash
+./scripts/validate_patch_stack.sh
 ./kernel/integration/linux-6.8/apply_kairo_patch.sh /path/to/linux-6.8.x
 ./kernel/integration/linux-6.8/validate_patch.sh /path/to/linux-6.8.x
 ./kernel/integration/linux-6.8/build_block_objects.sh /path/to/linux-6.8.x
 ```
 
-If the patch build succeeds and the patched kernel boots, continue with:
+If the foundation stack builds and the patched kernel boots, continue with:
 
 ```bash
 ./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1
