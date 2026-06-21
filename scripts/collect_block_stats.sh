@@ -31,7 +31,17 @@ if [[ -r "/sys/block/$DEV/queue/scheduler" ]]; then
   cat "/sys/block/$DEV/queue/scheduler" >"$OUT/scheduler.txt" 2>&1 || true
 fi
 
-for name in kairo_decode_dispatches kairo_normal_dispatches kairo_starvation_escapes; do
+for name in \
+  kairo_decode_dispatches \
+  kairo_prefetch_dispatches \
+  kairo_prefill_dispatches \
+  kairo_evict_dispatches \
+  kairo_normal_dispatches \
+  kairo_starvation_escapes \
+  kairo_merge_attempts \
+  kairo_merge_successes \
+  kairo_hinted_requests \
+  kairo_unhinted_requests; do
   if [[ -r "/sys/block/$DEV/queue/iosched/$name" ]]; then
     cat "/sys/block/$DEV/queue/iosched/$name" >"$OUT/$name.txt" 2>&1 || true
   fi

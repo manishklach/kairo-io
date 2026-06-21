@@ -1,0 +1,130 @@
+From 9999999999990000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:40:00 -0700
+Subject: [RFC/POC PATCH 9/9] block: expose Kairo sysfs and debug counters
+
+Subsystem touched:
+- `block/mq-deadline.c`
+- `block/blk-mq-debugfs.c`
+
+New Kairo concept:
+- counters proving whether decode, prefetch, prefill, evict, merge, and hinted
+  request paths are actually being exercised
+
+Relation to AI KV-cache traffic:
+- the benchmark must show not only latency changes but also that Kairo code
+  paths were actually used
+
+Temporary implementation:
+- extend the scheduler state with a minimal counter set and export it through
+  sysfs plus a debugfs text snapshot
+
+Still to validate:
+- whether all counters are worth keeping once the core policy stabilizes
+
+diff --git a/block/mq-deadline.c b/block/mq-deadline.c
+index 2891f10..f7a3312 100644
+--- a/block/mq-deadline.c
++++ b/block/mq-deadline.c
+@@
+ 	u64 kairo_decode_dispatches;
++	u64 kairo_prefetch_dispatches;
++	u64 kairo_prefill_dispatches;
++	u64 kairo_evict_dispatches;
+ 	u64 kairo_normal_dispatches;
+ 	u64 kairo_starvation_escapes;
++	u64 kairo_merge_attempts;
++	u64 kairo_merge_successes;
++	u64 kairo_hinted_requests;
++	u64 kairo_unhinted_requests;
+ 	unsigned int kairo_decode_budget_used;
+@@
++	switch (kairo_classify_rq(rq)) {
++	case KAIRO_IO_DECODE_READ:
++		dd->kairo_decode_dispatches++;
++		break;
++	case KAIRO_IO_PREFETCH_READ:
++		dd->kairo_prefetch_dispatches++;
++		break;
++	case KAIRO_IO_PREFILL_WRITE:
++		dd->kairo_prefill_dispatches++;
++		break;
++	case KAIRO_IO_EVICT:
++		dd->kairo_evict_dispatches++;
++		break;
++	case KAIRO_IO_NORMAL:
++		dd->kairo_normal_dispatches++;
++		break;
++	default:
++		dd->kairo_unhinted_requests++;
++		break;
++	}
+@@
++static ssize_t kairo_prefetch_dispatches_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_prefetch_dispatches);
++}
++
++static ssize_t kairo_prefill_dispatches_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_prefill_dispatches);
++}
++
++static ssize_t kairo_evict_dispatches_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_evict_dispatches);
++}
++
++static ssize_t kairo_merge_attempts_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_merge_attempts);
++}
++
++static ssize_t kairo_merge_successes_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_merge_successes);
++}
++
++static ssize_t kairo_hinted_requests_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_hinted_requests);
++}
++
++static ssize_t kairo_unhinted_requests_show(struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n", dd->kairo_unhinted_requests);
++}
+@@
++	__ATTR_RO(kairo_prefetch_dispatches),
++	__ATTR_RO(kairo_prefill_dispatches),
++	__ATTR_RO(kairo_evict_dispatches),
+ 	__ATTR_RO(kairo_normal_dispatches),
+ 	__ATTR_RO(kairo_starvation_escapes),
++	__ATTR_RO(kairo_merge_attempts),
++	__ATTR_RO(kairo_merge_successes),
++	__ATTR_RO(kairo_hinted_requests),
++	__ATTR_RO(kairo_unhinted_requests),
+ 	__ATTR_NULL
+ };
+
+ diff --git a/block/blk-mq-debugfs.c b/block/blk-mq-debugfs.c
+ index 53d1730..1590abc 100644
+ --- a/block/blk-mq-debugfs.c
+ +++ b/block/blk-mq-debugfs.c
+ @@
++static int blk_mq_debugfs_kairo_show(struct seq_file *m, void *v)
++{
++	struct request_queue *q = m->private;
++
++	seq_puts(m, "kairo_debug_counters:\n");
++	seq_printf(m, "  hinted_requests=%llu\n", q->elevator->kairo_hinted_requests);
++	seq_printf(m, "  unhinted_requests=%llu\n", q->elevator->kairo_unhinted_requests);
++	return 0;
++}

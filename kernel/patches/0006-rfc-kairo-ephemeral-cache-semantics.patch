@@ -1,0 +1,75 @@
+From 6666666666660000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:25:00 -0700
+Subject: [RFC/POC PATCH 6/9] fs: add experimental Kairo ephemeral cache semantics
+
+Subsystem touched:
+- `include/linux/fs.h`
+- `fs/open.c`
+- `fs/fcntl.c`
+- `mm/filemap.c`
+- `block/blk-core.c`
+
+New Kairo concept:
+- recomputable, ephemeral KV-cache data should be treated differently from
+  durability-critical ordinary files
+
+Relation to AI KV-cache traffic:
+- KV cache can often be regenerated, is immutable after write, and should avoid
+  polluting page cache when direct I/O paths are practical
+
+Temporary implementation:
+- local-only file and kiocb flags carrying ephemeral/recomputable semantics
+
+Still to validate:
+- what the minimum useful semantic set is for real experiments
+
+diff --git a/include/linux/fs.h b/include/linux/fs.h
+index 7d11b02..9341c70 100644
+--- a/include/linux/fs.h
++++ b/include/linux/fs.h
+@@
++#define FMODE_KAIRO_EPHEMERAL	((fmode_t)BIT(20))
++#define FMODE_KAIRO_RECOMPUTABLE ((fmode_t)BIT(21))
++#define IOCB_KAIRO_NO_DURABILITY_STRONG BIT_ULL(37)
+@@
++static inline bool kairo_file_ephemeral(const struct file *file)
++{
++	return file->f_mode & FMODE_KAIRO_EPHEMERAL;
++}
++
+ diff --git a/fs/fcntl.c b/fs/fcntl.c
+ index 81a1c22..34f1c9d 100644
+ --- a/fs/fcntl.c
+ +++ b/fs/fcntl.c
+ @@
++#define F_SET_KAIRO_EPHEMERAL	(F_LINUX_SPECIFIC_BASE + 14)
++#define F_SET_KAIRO_RECOMPUTABLE (F_LINUX_SPECIFIC_BASE + 15)
+@@
++	case F_SET_KAIRO_EPHEMERAL:
++		filp->f_mode |= FMODE_KAIRO_EPHEMERAL;
++		return 0;
++	case F_SET_KAIRO_RECOMPUTABLE:
++		filp->f_mode |= FMODE_KAIRO_RECOMPUTABLE;
++		return 0;
++
+ diff --git a/mm/filemap.c b/mm/filemap.c
+ index 3c1921d..fc3ba71 100644
+ --- a/mm/filemap.c
+ +++ b/mm/filemap.c
+ @@
++	if (kairo_file_ephemeral(file)) {
++		/*
++		 * RFC/POC: prefer not to let transient KV-cache data dominate
++		 * normal file-cache residency. Real policy remains to validate.
++		 */
++		mapping_set_gfp_mask(mapping, GFP_NOWAIT);
++	}
+
+ diff --git a/block/blk-core.c b/block/blk-core.c
+ index b3408a1..a0e6c10 100644
+ --- a/block/blk-core.c
+ +++ b/block/blk-core.c
+ @@
++	if (iocb->ki_flags & IOCB_KAIRO_RECOMPUTE)
++		req->kairo_hints.flags |= BIT(4);

@@ -1,0 +1,137 @@
+From 2222222222220000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:05:00 -0700
+Subject: [RFC/POC PATCH 2/9] block: add internal Kairo request classification
+
+Subsystem touched:
+- `include/linux/blk_types.h`
+- `include/linux/blk-mq.h`
+- `block/blk-mq.c`
+- `block/mq-deadline.c`
+
+New Kairo concept:
+- an internal request class describing decode, prefetch, prefill, evict, and
+  normal traffic without designing a permanent UAPI
+
+Relation to AI KV-cache traffic:
+- allows Kairo-aware schedulers to reason about decode-critical reads and
+  background prefill/eviction traffic consistently
+
+Temporary implementation:
+- classify from request `ioprio` plus request op
+
+Still to validate:
+- whether the helper belongs in `blk-mq` core or a smaller scheduler-local layer
+
+diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
+index 31c4b1b..4700abc 100644
+--- a/include/linux/blk_types.h
++++ b/include/linux/blk_types.h
+@@
++enum kairo_io_class {
++	KAIRO_IO_NONE = 0,
++	KAIRO_IO_DECODE_READ,
++	KAIRO_IO_PREFETCH_READ,
++	KAIRO_IO_PREFILL_WRITE,
++	KAIRO_IO_EVICT,
++	KAIRO_IO_NORMAL,
++};
++
++struct kairo_request_hints {
++	enum kairo_io_class io_class;
++	u32 model_id;
++	u32 session_id;
++	u32 cache_pool_id;
++	u32 lifetime_class;
++	u32 flags;
++};
++
+ diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
+ index 8dca8f1..54b0eef 100644
+ --- a/include/linux/blk-mq.h
+ +++ b/include/linux/blk-mq.h
+ @@
++static inline enum kairo_io_class kairo_classify_rq(struct request *rq)
++{
++	unsigned short ioprio = req_get_ioprio(rq);
++
++	if (op_is_discard(req_op(rq)))
++		return KAIRO_IO_EVICT;
++
++	if (rq_data_dir(rq) == READ &&
++	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
++	    IOPRIO_PRIO_DATA(ioprio) == 0)
++		return KAIRO_IO_DECODE_READ;
++
++	if (rq_data_dir(rq) == READ &&
++	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
++	    IOPRIO_PRIO_DATA(ioprio) == 1)
++		return KAIRO_IO_PREFETCH_READ;
++
++	if (rq_data_dir(rq) == WRITE &&
++	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
++	    IOPRIO_PRIO_DATA(ioprio) == 7)
++		return KAIRO_IO_PREFILL_WRITE;
++
++	if (rq_data_dir(rq) == READ || rq_data_dir(rq) == WRITE)
++		return KAIRO_IO_NORMAL;
++
++	return KAIRO_IO_NONE;
++}
++
+ diff --git a/block/blk-mq.c b/block/blk-mq.c
+ index c4aab7c..4ef6033 100644
+ --- a/block/blk-mq.c
+ +++ b/block/blk-mq.c
+ @@
++static void blk_mq_kairo_init_request(struct request *rq)
++{
++	/*
++	 * Local RFC/POC: use ioprio-derived classification until a more direct
++	 * io_uring or kiocb hint path is validated.
++	 */
++	rq->kairo_hints.io_class = kairo_classify_rq(rq);
++}
+ @@
+  void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
+  {
++	blk_mq_kairo_init_request(rq);
+  }
+
+ diff --git a/block/mq-deadline.c b/block/mq-deadline.c
+ index 4d7aa75..701fabc 100644
+ --- a/block/mq-deadline.c
+ +++ b/block/mq-deadline.c
+ @@
+-static inline bool dd_kairo_is_decode_read(struct request *rq)
++static inline bool dd_kairo_is_decode_read(struct request *rq)
+  {
+-	unsigned short ioprio = req_get_ioprio(rq);
+-
+-	return rq_data_dir(rq) == READ &&
+-	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
+-	       IOPRIO_PRIO_DATA(ioprio) == 0;
++	return kairo_classify_rq(rq) == KAIRO_IO_DECODE_READ;
+  }
+@@
+-static inline bool dd_kairo_is_prefetch_read(struct request *rq)
++static inline bool dd_kairo_is_prefetch_read(struct request *rq)
+  {
+-	unsigned short ioprio = req_get_ioprio(rq);
+-
+-	return rq_data_dir(rq) == READ &&
+-	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
+-	       IOPRIO_PRIO_DATA(ioprio) == 1;
++	return kairo_classify_rq(rq) == KAIRO_IO_PREFETCH_READ;
+  }
+@@
+-static inline bool dd_kairo_is_prefill_write(struct request *rq)
++static inline bool dd_kairo_is_prefill_write(struct request *rq)
+  {
+-	unsigned short ioprio = req_get_ioprio(rq);
+-
+-	return rq_data_dir(rq) == WRITE &&
+-	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
+-	       IOPRIO_PRIO_DATA(ioprio) == 7;
++	return kairo_classify_rq(rq) == KAIRO_IO_PREFILL_WRITE;
+  }

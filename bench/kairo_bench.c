@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <inttypes.h>
+#include <linux/falloc.h>
 #include <linux/ioprio.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -28,6 +29,15 @@ enum kairo_worker_kind {
     KAIRO_WORKER_DECODE = 0,
     KAIRO_WORKER_PREFETCH = 1,
     KAIRO_WORKER_WRITE = 2,
+    KAIRO_WORKER_EVICT = 3,
+};
+
+enum kairo_mode {
+    KAIRO_MODE_DECODE_ONLY = 0,
+    KAIRO_MODE_MIXED = 1,
+    KAIRO_MODE_PREFETCH_PRESSURE = 2,
+    KAIRO_MODE_EVICTION_PRESSURE = 3,
+    KAIRO_MODE_MULTISESSION = 4,
 };
 
 struct kairo_config {
@@ -37,8 +47,14 @@ struct kairo_config {
     unsigned int decode_threads;
     unsigned int prefetch_threads;
     unsigned int write_threads;
+    unsigned int evict_threads;
     unsigned int runtime_seconds;
     unsigned int queue_depth_hint;
+    unsigned int sessions;
+    unsigned int models;
+    unsigned int prefill_region_pct;
+    unsigned int decode_region_pct;
+    enum kairo_mode mode;
     bool use_direct;
     bool random_read;
 };
@@ -48,9 +64,11 @@ struct kairo_stats {
     uint64_t total_decode_reads;
     uint64_t total_prefetch_reads;
     uint64_t total_writes;
+    uint64_t total_evictions;
     uint64_t total_decode_bytes;
     uint64_t total_prefetch_bytes;
     uint64_t total_write_bytes;
+    uint64_t total_evict_bytes;
     uint64_t decode_latency_samples;
     long double decode_latency_sum_us;
     double decode_latency_max_us;
@@ -67,9 +85,11 @@ struct kairo_stats_snapshot {
     uint64_t total_decode_reads;
     uint64_t total_prefetch_reads;
     uint64_t total_writes;
+    uint64_t total_evictions;
     uint64_t total_decode_bytes;
     uint64_t total_prefetch_bytes;
     uint64_t total_write_bytes;
+    uint64_t total_evict_bytes;
     uint64_t decode_latency_samples;
     long double decode_latency_sum_us;
     double decode_latency_max_us;
@@ -87,23 +107,66 @@ struct kairo_worker_ctx {
     const struct kairo_config *cfg;
     struct kairo_stats *stats;
     unsigned int worker_id;
+    unsigned int session_id;
+    unsigned int model_id;
     enum kairo_worker_kind kind;
     volatile bool *stop;
     off_t region_start;
     off_t region_length;
 };
 
+static const char *kairo_mode_name(enum kairo_mode mode)
+{
+    switch (mode) {
+    case KAIRO_MODE_DECODE_ONLY:
+        return "decode-only";
+    case KAIRO_MODE_MIXED:
+        return "mixed";
+    case KAIRO_MODE_PREFETCH_PRESSURE:
+        return "prefetch-pressure";
+    case KAIRO_MODE_EVICTION_PRESSURE:
+        return "eviction-pressure";
+    case KAIRO_MODE_MULTISESSION:
+        return "multisession";
+    default:
+        return "mixed";
+    }
+}
+
+static enum kairo_mode parse_mode(const char *value)
+{
+    if (strcmp(value, "decode-only") == 0)
+        return KAIRO_MODE_DECODE_ONLY;
+    if (strcmp(value, "mixed") == 0)
+        return KAIRO_MODE_MIXED;
+    if (strcmp(value, "prefetch-pressure") == 0)
+        return KAIRO_MODE_PREFETCH_PRESSURE;
+    if (strcmp(value, "eviction-pressure") == 0)
+        return KAIRO_MODE_EVICTION_PRESSURE;
+    if (strcmp(value, "multisession") == 0)
+        return KAIRO_MODE_MULTISESSION;
+
+    fprintf(stderr, "invalid mode: %s\n", value);
+    exit(EXIT_FAILURE);
+}
+
 static void usage(const char *prog)
 {
     fprintf(stderr,
             "Usage: %s --file <path> [options]\n"
             "  --file <path>             Target file path\n"
+            "  --mode <name>             decode-only|mixed|prefetch-pressure|eviction-pressure|multisession\n"
             "  --size <bytes|K|M|G>      File size, default 8G\n"
             "  --block-size <bytes|K|M|G>\n"
             "                            I/O block size, default 1M\n"
             "  --decode-threads <n>      Default 4\n"
             "  --prefetch-threads <n>    Default 1\n"
             "  --write-threads <n>       Default 2\n"
+            "  --evict-threads <n>       Default 0\n"
+            "  --sessions <n>            Default 1\n"
+            "  --models <n>              Default 1\n"
+            "  --prefill-region-pct <n>  Default 34\n"
+            "  --decode-region-pct <n>   Default 33\n"
             "  --runtime <sec>           Default 60\n"
             "  --queue-depth <n>         Placeholder for future io_uring path\n"
             "  --random-read             Default mode\n"
@@ -206,6 +269,9 @@ static int set_current_ioprio(enum kairo_worker_kind kind)
     case KAIRO_WORKER_PREFETCH:
         prio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, KAIRO_CLASS_PREFETCH_READ);
         break;
+    case KAIRO_WORKER_EVICT:
+        prio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 6);
+        break;
     case KAIRO_WORKER_WRITE:
     default:
         prio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 7);
@@ -224,6 +290,8 @@ static const char *worker_kind_name(enum kairo_worker_kind kind)
         return "prefetch";
     case KAIRO_WORKER_WRITE:
         return "write";
+    case KAIRO_WORKER_EVICT:
+        return "evict";
     default:
         return "unknown";
     }
@@ -237,10 +305,62 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->decode_threads = 4;
     cfg->prefetch_threads = 1;
     cfg->write_threads = 2;
+    cfg->evict_threads = 0;
     cfg->runtime_seconds = 60;
     cfg->queue_depth_hint = 32;
+    cfg->sessions = 1;
+    cfg->models = 1;
+    cfg->prefill_region_pct = 34;
+    cfg->decode_region_pct = 33;
+    cfg->mode = KAIRO_MODE_MIXED;
     cfg->use_direct = true;
     cfg->random_read = true;
+}
+
+static void apply_mode_defaults(struct kairo_config *cfg)
+{
+    switch (cfg->mode) {
+    case KAIRO_MODE_DECODE_ONLY:
+        cfg->prefetch_threads = 0;
+        cfg->write_threads = 0;
+        cfg->evict_threads = 0;
+        if (cfg->decode_threads == 0)
+            cfg->decode_threads = 1;
+        cfg->decode_region_pct = 100;
+        cfg->prefill_region_pct = 0;
+        break;
+    case KAIRO_MODE_PREFETCH_PRESSURE:
+        if (cfg->prefetch_threads < 4)
+            cfg->prefetch_threads = 4;
+        if (cfg->write_threads == 0)
+            cfg->write_threads = 1;
+        cfg->decode_region_pct = 25;
+        cfg->prefill_region_pct = 25;
+        break;
+    case KAIRO_MODE_EVICTION_PRESSURE:
+        if (cfg->evict_threads == 0)
+            cfg->evict_threads = 2;
+        if (cfg->write_threads == 0)
+            cfg->write_threads = 1;
+        cfg->decode_region_pct = 25;
+        cfg->prefill_region_pct = 25;
+        break;
+    case KAIRO_MODE_MULTISESSION:
+        if (cfg->sessions < 4)
+            cfg->sessions = 4;
+        if (cfg->models < 2)
+            cfg->models = 2;
+        if (cfg->prefetch_threads < 2)
+            cfg->prefetch_threads = 2;
+        if (cfg->write_threads == 0)
+            cfg->write_threads = 1;
+        if (cfg->evict_threads == 0)
+            cfg->evict_threads = 1;
+        break;
+    case KAIRO_MODE_MIXED:
+    default:
+        break;
+    }
 }
 
 static void validate_config(const struct kairo_config *cfg)
@@ -263,8 +383,18 @@ static void validate_config(const struct kairo_config *cfg)
                 (unsigned long)KAIRO_DIRECT_ALIGN);
         exit(EXIT_FAILURE);
     }
-    if (cfg->decode_threads == 0 && cfg->prefetch_threads == 0 && cfg->write_threads == 0) {
+    if (cfg->decode_threads == 0 && cfg->prefetch_threads == 0 &&
+        cfg->write_threads == 0 && cfg->evict_threads == 0) {
         fprintf(stderr, "no workers configured\n");
+        exit(EXIT_FAILURE);
+    }
+    if (cfg->sessions == 0 || cfg->models == 0) {
+        fprintf(stderr, "--sessions and --models must be non-zero\n");
+        exit(EXIT_FAILURE);
+    }
+    if (cfg->decode_region_pct > 100 || cfg->prefill_region_pct > 100 ||
+        cfg->decode_region_pct + cfg->prefill_region_pct > 100) {
+        fprintf(stderr, "invalid region percentages\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -333,6 +463,7 @@ static void record_ioprio_result(struct kairo_stats *stats, enum kairo_worker_ki
         else
             stats->ioprio_prefetch_fail++;
         break;
+    case KAIRO_WORKER_EVICT:
     case KAIRO_WORKER_WRITE:
     default:
         if (ok)
@@ -373,15 +504,25 @@ static void record_write(struct kairo_stats *stats, size_t bytes)
     pthread_mutex_unlock(&stats->lock);
 }
 
+static void record_evict(struct kairo_stats *stats, size_t bytes)
+{
+    pthread_mutex_lock(&stats->lock);
+    stats->total_evictions++;
+    stats->total_evict_bytes += bytes;
+    pthread_mutex_unlock(&stats->lock);
+}
+
 static void snapshot_stats(struct kairo_stats *stats, struct kairo_stats_snapshot *snapshot)
 {
     pthread_mutex_lock(&stats->lock);
     snapshot->total_decode_reads = stats->total_decode_reads;
     snapshot->total_prefetch_reads = stats->total_prefetch_reads;
     snapshot->total_writes = stats->total_writes;
+    snapshot->total_evictions = stats->total_evictions;
     snapshot->total_decode_bytes = stats->total_decode_bytes;
     snapshot->total_prefetch_bytes = stats->total_prefetch_bytes;
     snapshot->total_write_bytes = stats->total_write_bytes;
+    snapshot->total_evict_bytes = stats->total_evict_bytes;
     snapshot->decode_latency_samples = stats->decode_latency_samples;
     snapshot->decode_latency_sum_us = stats->decode_latency_sum_us;
     snapshot->decode_latency_max_us = stats->decode_latency_max_us;
@@ -397,13 +538,39 @@ static void snapshot_stats(struct kairo_stats *stats, struct kairo_stats_snapsho
 
 static off_t next_read_block(const struct kairo_worker_ctx *ctx, off_t op_index, off_t block_count)
 {
+    unsigned int session_seed = ctx->session_id * 131;
+    unsigned int model_seed = ctx->model_id * 977;
+
     if (!ctx->cfg->random_read)
         return op_index % block_count;
 
     if (ctx->kind == KAIRO_WORKER_PREFETCH)
-        return (op_index * 31 + (off_t)(ctx->worker_id * 7)) % block_count;
+        return (op_index * 31 + (off_t)session_seed + (off_t)model_seed) % block_count;
 
-    return (op_index * 17 + (off_t)ctx->worker_id) % block_count;
+    if (ctx->kind == KAIRO_WORKER_EVICT)
+        return (op_index * 7 + (off_t)session_seed + (off_t)(ctx->worker_id * 3)) % block_count;
+
+    return (op_index * 17 + (off_t)session_seed + (off_t)ctx->worker_id + (off_t)model_seed) % block_count;
+}
+
+static int do_evict_op(struct kairo_worker_ctx *ctx, void *buffer, size_t block_size, off_t file_offset)
+{
+#ifdef FALLOC_FL_PUNCH_HOLE
+    if (fallocate(ctx->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+                  file_offset, (off_t)block_size) == 0) {
+        record_evict(ctx->stats, block_size);
+        return 0;
+    }
+
+    if (errno != EOPNOTSUPP && errno != ENOTTY && errno != ENOSYS)
+        return -1;
+#endif
+
+    memset(buffer, 0, block_size);
+    if (pwrite(ctx->fd, buffer, block_size, file_offset) != (ssize_t)block_size)
+        return -1;
+    record_evict(ctx->stats, block_size);
+    return 0;
 }
 
 static void *worker_main(void *arg)
@@ -463,6 +630,11 @@ static void *worker_main(void *arg)
                 break;
             }
             record_write(ctx->stats, block_size);
+        } else if (ctx->kind == KAIRO_WORKER_EVICT) {
+            if (do_evict_op(ctx, buffer, block_size, file_offset) != 0) {
+                perror("evict");
+                break;
+            }
         } else {
             struct timespec start_ts;
             struct timespec end_ts;
@@ -510,6 +682,7 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     double decode_read_mbps;
     double prefetch_read_mbps;
     double write_mbps;
+    double evict_mbps;
     double *sorted = NULL;
     struct kairo_stats_snapshot snapshot;
 
@@ -540,15 +713,23 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     write_mbps = cfg->runtime_seconds
         ? ((double)snapshot.total_write_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
         : 0.0;
+    evict_mbps = cfg->runtime_seconds
+        ? ((double)snapshot.total_evict_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
+        : 0.0;
 
     puts("kairo_bench summary");
     printf("file=%s\n", cfg->file_path);
+    printf("mode=%s\n", kairo_mode_name(cfg->mode));
+    printf("sessions=%u\n", cfg->sessions);
+    printf("models=%u\n", cfg->models);
     printf("decode_threads=%u\n", cfg->decode_threads);
     printf("prefetch_threads=%u\n", cfg->prefetch_threads);
     printf("write_threads=%u\n", cfg->write_threads);
+    printf("evict_threads=%u\n", cfg->evict_threads);
     printf("decode_total_reads=%" PRIu64 "\n", snapshot.total_decode_reads);
     printf("prefetch_total_reads=%" PRIu64 "\n", snapshot.total_prefetch_reads);
     printf("write_total_ops=%" PRIu64 "\n", snapshot.total_writes);
+    printf("evict_total_ops=%" PRIu64 "\n", snapshot.total_evictions);
     printf("decode_avg_us=%.2f\n", decode_avg_us);
     printf("decode_p50_us=%.2f\n", decode_p50_us);
     printf("decode_p95_us=%.2f\n", decode_p95_us);
@@ -557,6 +738,7 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("decode_read_MBps=%.2f\n", decode_read_mbps);
     printf("prefetch_read_MBps=%.2f\n", prefetch_read_mbps);
     printf("write_MBps=%.2f\n", write_mbps);
+    printf("evict_MBps=%.2f\n", evict_mbps);
     printf("ioprio_decode_ok=%" PRIu64 "\n", snapshot.ioprio_decode_ok);
     printf("ioprio_decode_fail=%" PRIu64 "\n", snapshot.ioprio_decode_fail);
     printf("ioprio_prefetch_ok=%" PRIu64 "\n", snapshot.ioprio_prefetch_ok);
@@ -578,20 +760,30 @@ int main(int argc, char **argv)
     unsigned int total_threads;
     unsigned int index = 0;
     unsigned int i;
-    off_t third;
+    unsigned int mode_total_pct;
+    off_t decode_region;
+    off_t prefetch_region;
+    off_t write_region_start;
+    off_t write_region_length;
     int fd;
     int opt;
     int option_index = 0;
 
     static const struct option long_options[] = {
         {"file", required_argument, NULL, 'f'},
+        {"mode", required_argument, NULL, 'm'},
         {"size", required_argument, NULL, 's'},
         {"block-size", required_argument, NULL, 'b'},
         {"decode-threads", required_argument, NULL, 'd'},
         {"prefetch-threads", required_argument, NULL, 'p'},
         {"write-threads", required_argument, NULL, 'w'},
+        {"evict-threads", required_argument, NULL, 'e'},
         {"runtime", required_argument, NULL, 't'},
         {"queue-depth", required_argument, NULL, 'q'},
+        {"sessions", required_argument, NULL, 'S'},
+        {"models", required_argument, NULL, 'M'},
+        {"prefill-region-pct", required_argument, NULL, 'P'},
+        {"decode-region-pct", required_argument, NULL, 'D'},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -600,10 +792,13 @@ int main(int argc, char **argv)
 
     set_defaults(&cfg);
 
-    while ((opt = getopt_long(argc, argv, "f:s:b:d:p:w:t:q:", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "f:m:s:b:d:p:w:e:t:q:S:M:P:D:", long_options, &option_index)) != -1) {
         switch (opt) {
         case 'f':
             cfg.file_path = optarg;
+            break;
+        case 'm':
+            cfg.mode = parse_mode(optarg);
             break;
         case 's':
             cfg.file_size_bytes = parse_size(optarg, "size");
@@ -620,11 +815,26 @@ int main(int argc, char **argv)
         case 'w':
             cfg.write_threads = (unsigned int)parse_size(optarg, "write-threads");
             break;
+        case 'e':
+            cfg.evict_threads = (unsigned int)parse_size(optarg, "evict-threads");
+            break;
         case 't':
             cfg.runtime_seconds = (unsigned int)parse_size(optarg, "runtime");
             break;
         case 'q':
             cfg.queue_depth_hint = (unsigned int)parse_size(optarg, "queue-depth");
+            break;
+        case 'S':
+            cfg.sessions = (unsigned int)parse_size(optarg, "sessions");
+            break;
+        case 'M':
+            cfg.models = (unsigned int)parse_size(optarg, "models");
+            break;
+        case 'P':
+            cfg.prefill_region_pct = (unsigned int)parse_size(optarg, "prefill-region-pct");
+            break;
+        case 'D':
+            cfg.decode_region_pct = (unsigned int)parse_size(optarg, "decode-region-pct");
             break;
         case 1:
             cfg.random_read = true;
@@ -641,12 +851,13 @@ int main(int argc, char **argv)
         }
     }
 
+    apply_mode_defaults(&cfg);
     validate_config(&cfg);
     fd = open_target(&cfg);
     prepare_file(fd, &cfg);
     stats_init(&stats);
 
-    total_threads = cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads;
+    total_threads = cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads + cfg.evict_threads;
     threads = calloc(total_threads, sizeof(*threads));
     workers = calloc(total_threads, sizeof(*workers));
     if (threads == NULL || workers == NULL) {
@@ -658,10 +869,23 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    third = (off_t)cfg.file_size_bytes / 3;
-    third -= third % (off_t)cfg.block_size_bytes;
-    if (third == 0)
-        third = (off_t)cfg.block_size_bytes;
+    mode_total_pct = cfg.decode_region_pct + cfg.prefill_region_pct;
+    decode_region = (off_t)((cfg.file_size_bytes * cfg.decode_region_pct) / 100U);
+    decode_region -= decode_region % (off_t)cfg.block_size_bytes;
+    if (cfg.decode_threads > 0 && decode_region == 0)
+        decode_region = (off_t)cfg.block_size_bytes;
+
+    prefetch_region = (off_t)((cfg.file_size_bytes * (100U - mode_total_pct)) / 100U);
+    prefetch_region -= prefetch_region % (off_t)cfg.block_size_bytes;
+    if ((cfg.prefetch_threads > 0 || cfg.write_threads > 0 || cfg.evict_threads > 0) && prefetch_region == 0)
+        prefetch_region = (off_t)cfg.block_size_bytes;
+
+    write_region_start = decode_region;
+    write_region_length = (off_t)cfg.file_size_bytes - decode_region;
+    if (write_region_length < (off_t)cfg.block_size_bytes) {
+        write_region_start = 0;
+        write_region_length = (off_t)cfg.file_size_bytes;
+    }
 
     for (i = 0; i < cfg.decode_threads; i++, index++) {
         workers[index] = (struct kairo_worker_ctx){
@@ -669,10 +893,12 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
+            .session_id = i % cfg.sessions,
+            .model_id = i % cfg.models,
             .kind = KAIRO_WORKER_DECODE,
             .stop = &stop,
             .region_start = 0,
-            .region_length = third,
+            .region_length = decode_region ? decode_region : (off_t)cfg.file_size_bytes,
         };
         pthread_create(&threads[index], NULL, worker_main, &workers[index]);
     }
@@ -683,10 +909,12 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
+            .session_id = (i + cfg.decode_threads) % cfg.sessions,
+            .model_id = (i + cfg.decode_threads) % cfg.models,
             .kind = KAIRO_WORKER_PREFETCH,
             .stop = &stop,
-            .region_start = third,
-            .region_length = third,
+            .region_start = decode_region,
+            .region_length = prefetch_region ? prefetch_region : write_region_length,
         };
         pthread_create(&threads[index], NULL, worker_main, &workers[index]);
     }
@@ -697,15 +925,29 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
+            .session_id = (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.sessions,
+            .model_id = (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.models,
             .kind = KAIRO_WORKER_WRITE,
             .stop = &stop,
-            .region_start = third * 2,
-            .region_length = (off_t)cfg.file_size_bytes - (third * 2),
+            .region_start = write_region_start,
+            .region_length = write_region_length,
         };
-        if (workers[index].region_length < (off_t)cfg.block_size_bytes) {
-            workers[index].region_start = 0;
-            workers[index].region_length = (off_t)cfg.file_size_bytes;
-        }
+        pthread_create(&threads[index], NULL, worker_main, &workers[index]);
+    }
+
+    for (i = 0; i < cfg.evict_threads; i++, index++) {
+        workers[index] = (struct kairo_worker_ctx){
+            .fd = fd,
+            .cfg = &cfg,
+            .stats = &stats,
+            .worker_id = i,
+            .session_id = (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.sessions,
+            .model_id = (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.models,
+            .kind = KAIRO_WORKER_EVICT,
+            .stop = &stop,
+            .region_start = write_region_start,
+            .region_length = write_region_length,
+        };
         pthread_create(&threads[index], NULL, worker_main, &workers[index]);
     }
 

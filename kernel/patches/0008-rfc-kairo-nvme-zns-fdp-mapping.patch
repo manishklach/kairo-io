@@ -1,0 +1,83 @@
+From 8888888888880000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:35:00 -0700
+Subject: [RFC/POC PATCH 8/9] nvme: add Kairo mapping hooks for Streams FDP and ZNS
+
+Subsystem touched:
+- `drivers/nvme/host/core.c`
+- `drivers/nvme/host/zns.c`
+- `include/linux/nvme.h`
+
+New Kairo concept:
+- generic backend mapping hooks that translate Kairo placement/lifetime hints
+  into optional NVMe placement domains
+
+Relation to AI KV-cache traffic:
+- short-lived and session-scoped cache data is a natural candidate for streams,
+  FDP reclaim units, or zone-local grouping when the hardware supports it
+
+Temporary implementation:
+- feature-detected hook points with safe no-op fallback
+
+Still to validate:
+- how much benefit these hooks provide on generic SSDs compared with software-only grouping
+
+diff --git a/include/linux/nvme.h b/include/linux/nvme.h
+index 44ba29f..63d2f01 100644
+--- a/include/linux/nvme.h
++++ b/include/linux/nvme.h
+@@
++struct nvme_kairo_mapping {
++	u16 streamid;
++	u16 phandle;
++	u8 use_zns;
++};
++
+ diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+ index 6d201df..5cd9028 100644
+ --- a/drivers/nvme/host/core.c
+ +++ b/drivers/nvme/host/core.c
+ @@
++static void nvme_kairo_select_mapping(struct request *rq,
++				      struct nvme_kairo_mapping *map)
++{
++	memset(map, 0, sizeof(*map));
++
++	if (!rq->kairo_hints.placement.lifetime_class)
++		return;
++
++	switch (rq->kairo_hints.placement.lifetime_class) {
++	case KAIRO_LIFE_SHORT:
++		map->streamid = 1;
++		break;
++	case KAIRO_LIFE_SESSION:
++		map->streamid = 2;
++		break;
++	case KAIRO_LIFE_MODEL:
++		map->phandle = 1;
++		break;
++	default:
++		break;
++	}
++}
+@@
++	if (ctrl->nr_streams || ctrl->nr_ruhs) {
++		struct nvme_kairo_mapping map;
++
++		nvme_kairo_select_mapping(rq, &map);
++		/*
++		 * RFC/POC only: if unsupported, this remains a no-op and the
++		 * request proceeds through the normal generic NVMe path.
++		 */
++	}
+
+ diff --git a/drivers/nvme/host/zns.c b/drivers/nvme/host/zns.c
+ index 4ca102f..ac77fe9 100644
+ --- a/drivers/nvme/host/zns.c
+ +++ b/drivers/nvme/host/zns.c
+ @@
++static bool nvme_kairo_zone_reset_candidate(struct request *rq)
++{
++	return rq->kairo_hints.io_class == KAIRO_IO_EVICT &&
++	       rq->kairo_hints.placement.lifetime_class == KAIRO_LIFE_SESSION;
++}

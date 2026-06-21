@@ -1,0 +1,76 @@
+From 4444444444440000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:15:00 -0700
+Subject: [RFC/POC PATCH 4/9] block: bias merge policy for Kairo large-block reads
+
+Subsystem touched:
+- `block/blk-merge.c`
+- `block/blk-mq.c`
+- `include/linux/blkdev.h`
+
+New Kairo concept:
+- Kairo-classified decode and prefetch reads should bias toward larger merged
+  requests without breaking queue limits
+
+Relation to AI KV-cache traffic:
+- KV-cache reads tend to be large-block and semi-sequential, so fragmentation in
+  the generic path can inflate tail latency and device overhead
+
+Temporary implementation:
+- conservative merge bias helper around existing merge checks
+
+Still to validate:
+- whether the merge bias should be device-specific or generic across all queues
+
+diff --git a/include/linux/blkdev.h b/include/linux/blkdev.h
+index 6aa1cb0..85b9031 100644
+--- a/include/linux/blkdev.h
++++ b/include/linux/blkdev.h
+@@
++#define KAIRO_MERGE_BIAS_SECTORS	4096
++
+ diff --git a/block/blk-merge.c b/block/blk-merge.c
+ index 7f24b70..b987ab2 100644
+ --- a/block/blk-merge.c
+ +++ b/block/blk-merge.c
+ @@
++static bool kairo_should_bias_merge(struct request *rq, struct bio *bio)
++{
++	enum kairo_io_class rq_class = rq->kairo_hints.io_class;
++	unsigned int sectors = blk_rq_sectors(rq) + bio_sectors(bio);
++
++	if (rq_class != KAIRO_IO_DECODE_READ &&
++	    rq_class != KAIRO_IO_PREFETCH_READ)
++		return false;
++
++	if (sectors > KAIRO_MERGE_BIAS_SECTORS)
++		return false;
++
++	/*
++	 * RFC/POC rule:
++	 * keep normal queue limit checks and incompatibility checks intact,
++	 * only bias the decision when the resulting large request still fits.
++	 */
++	return true;
++}
+@@
+  static struct request *attempt_merge(struct request_queue *q, struct request *rq,
+  				     struct bio *bio)
+  {
++	if (kairo_should_bias_merge(rq, bio))
++		rq->kairo_hints.flags |= BIT(0);
+  	...
+  }
+
+ diff --git a/block/blk-mq.c b/block/blk-mq.c
+ index 4ef6033..18fd0e3 100644
+ --- a/block/blk-mq.c
+ +++ b/block/blk-mq.c
+ @@
++	if (rq->kairo_hints.io_class == KAIRO_IO_DECODE_READ ||
++	    rq->kairo_hints.io_class == KAIRO_IO_PREFETCH_READ) {
++		/*
++		 * Local RFC/POC: preserve the hint so merge instrumentation can
++		 * later correlate larger request shapes with decode tail latency.
++		 */
++	}

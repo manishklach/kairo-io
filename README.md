@@ -15,7 +15,7 @@ Kairo explores whether Linux block-layer changes can improve generic NVMe SSD be
 - internal RFC/POC
 - experimental kernel path
 - benchmark-driven validation
-- local patch scaffolds targeting `mq-deadline`
+- local multi-patch kernel RFC/POC series centered on `mq-deadline`, `blk-mq`, `io_uring`, and generic NVMe hooks
 
 ## Problem
 
@@ -84,8 +84,14 @@ Primary patch scaffold:
 
 Supporting scaffolds:
 
-- [kernel/patches/0002-rfc-kairo-block-request-classification.patch](kernel/patches/0002-rfc-kairo-block-request-classification.patch)
-- [kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch](kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch)
+- [kernel/patches/0002-rfc-kairo-request-classification.patch](kernel/patches/0002-rfc-kairo-request-classification.patch)
+- [kernel/patches/0003-rfc-kairo-io-uring-hint-plumbing.patch](kernel/patches/0003-rfc-kairo-io-uring-hint-plumbing.patch)
+- [kernel/patches/0004-rfc-kairo-large-block-coalescing.patch](kernel/patches/0004-rfc-kairo-large-block-coalescing.patch)
+- [kernel/patches/0005-rfc-kairo-prefetch-deadline-hints.patch](kernel/patches/0005-rfc-kairo-prefetch-deadline-hints.patch)
+- [kernel/patches/0006-rfc-kairo-ephemeral-cache-semantics.patch](kernel/patches/0006-rfc-kairo-ephemeral-cache-semantics.patch)
+- [kernel/patches/0007-rfc-kairo-placement-lifetime-hints.patch](kernel/patches/0007-rfc-kairo-placement-lifetime-hints.patch)
+- [kernel/patches/0008-rfc-kairo-nvme-zns-fdp-mapping.patch](kernel/patches/0008-rfc-kairo-nvme-zns-fdp-mapping.patch)
+- [kernel/patches/0009-rfc-kairo-sysfs-debug-counters.patch](kernel/patches/0009-rfc-kairo-sysfs-debug-counters.patch)
 
 ## Success Metric
 
@@ -141,9 +147,17 @@ Use the A/B runner to compare baseline vs Kairo on the same generic NVMe SSD:
 ./scripts/run_ab_experiment.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
+Use the multisession runner to stress model/session fan-out:
+
+```bash
+./scripts/run_multisession_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
 Track local validation status in:
 
 - [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
+- [docs/full_architecture_status.md](docs/full_architecture_status.md)
+- [docs/patch_series.md](docs/patch_series.md)
 
 ## Repository Layout
 

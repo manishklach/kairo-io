@@ -14,12 +14,4 @@ if [[ -n "$BLOCK_DEVICE" ]]; then
   cat "/sys/block/$BLOCK_DEVICE/queue/scheduler" || true
 fi
 
-./kairo_bench \
-  --file "$TARGET_FILE" \
-  --size 8G \
-  --block-size 1M \
-  --decode-threads 4 \
-  --prefetch-threads 1 \
-  --write-threads 2 \
-  --runtime 60 \
-  --random-read
+./kairo_bench --file "$TARGET_FILE" --mode mixed --size 8G --block-size 1M --decode-threads 4 --prefetch-threads 1 --write-threads 2 --evict-threads 1 --sessions 4 --models 2 --runtime 60 --random-read

@@ -1,0 +1,91 @@
+From 7777777777770000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:30:00 -0700
+Subject: [RFC/POC PATCH 7/9] block: add Kairo placement and lifetime hints
+
+Subsystem touched:
+- `include/linux/blk_types.h`
+- `block/blk-mq.c`
+- `block/blk-core.c`
+- `drivers/nvme/host/core.c`
+
+New Kairo concept:
+- model/session/cache-pool/lifetime metadata that can group related KV-cache I/O
+
+Relation to AI KV-cache traffic:
+- session/model scoping and short-lived cache pools are central to the original
+  Kairo vision and can influence both scheduling and backend placement
+
+Temporary implementation:
+- extend Kairo request hints with a placement structure and default lifetimes
+
+Still to validate:
+- whether software-only grouping is enough before mapping to hardware features
+
+diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
+index f190ccd..d20ef19 100644
+--- a/include/linux/blk_types.h
++++ b/include/linux/blk_types.h
+@@
++enum kairo_lifetime_class {
++	KAIRO_LIFE_SHORT = 0,
++	KAIRO_LIFE_SESSION,
++	KAIRO_LIFE_MODEL,
++	KAIRO_LIFE_PERSISTENT,
++};
++
++struct kairo_placement_hint {
++	u32 model_id;
++	u32 session_id;
++	u32 cache_pool_id;
++	u32 lifetime_class;
++	u32 recompute_ok;
++};
++
+ struct kairo_request_hints {
+ 	enum kairo_io_class io_class;
+ 	u64 kairo_deadline_ns;
+ 	u32 kairo_prefetch_distance;
+-	u32 model_id;
+-	u32 session_id;
+-	u32 cache_pool_id;
+-	u32 lifetime_class;
++	struct kairo_placement_hint placement;
+ 	u32 flags;
+ };
+
+ diff --git a/block/blk-mq.c b/block/blk-mq.c
+ index 1297dde..8ed990a 100644
+ --- a/block/blk-mq.c
+ +++ b/block/blk-mq.c
+ @@
++static void blk_mq_kairo_default_placement(struct request *rq)
++{
++	struct kairo_placement_hint *hint = &rq->kairo_hints.placement;
++
++	hint->lifetime_class = KAIRO_LIFE_SHORT;
++	hint->recompute_ok = !!(rq->kairo_hints.flags & BIT(4));
++}
+@@
+  void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
+  {
+  	blk_mq_kairo_init_request(rq);
+  	blk_mq_kairo_prefetch_defaults(rq);
++	blk_mq_kairo_default_placement(rq);
+  }
+
+ diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+ index 8a710cc..6d201df 100644
+ --- a/drivers/nvme/host/core.c
+ +++ b/drivers/nvme/host/core.c
+ @@
++static void nvme_kairo_prepare_req(struct request *rq)
++{
++	/*
++	 * RFC/POC:
++	 * KAIRO_LIFE_SHORT      -> short-lived placement group
++	 * KAIRO_LIFE_SESSION    -> session-local placement group
++	 * KAIRO_LIFE_MODEL      -> model-local placement group
++	 * KAIRO_LIFE_PERSISTENT -> no special handling
++	 */
++}

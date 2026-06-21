@@ -68,11 +68,15 @@ run_bench_to_log() {
   local log_file="$1"
   "$BENCH_BIN" \
     --file "$TARGET_FILE" \
+    --mode mixed \
     --size 8G \
     --block-size 1M \
     --decode-threads 4 \
     --prefetch-threads 1 \
     --write-threads 2 \
+    --evict-threads 1 \
+    --sessions 4 \
+    --models 2 \
     --runtime 60 \
     --random-read | tee "$log_file"
 }
@@ -183,6 +187,10 @@ EOF
 
 echo "baseline_decode_p99_us=$baseline_p99"
 echo "kairo_decode_p99_us=$kairo_p99"
+echo "baseline_decode_p95_us=$baseline_p95"
+echo "kairo_decode_p95_us=$kairo_p95"
+echo "baseline_decode_avg_us=$baseline_avg"
+echo "kairo_decode_avg_us=$kairo_avg"
 echo "p99_improvement_pct=$p99_improvement_pct"
 echo "baseline_write_MBps=$baseline_write_mbps"
 echo "kairo_write_MBps=$kairo_write_mbps"

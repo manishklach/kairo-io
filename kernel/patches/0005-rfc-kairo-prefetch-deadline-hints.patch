@@ -1,0 +1,94 @@
+From 5555555555550000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:20:00 -0700
+Subject: [RFC/POC PATCH 5/9] block: add Kairo prefetch deadline hints
+
+Subsystem touched:
+- `include/linux/blk_types.h`
+- `block/blk-mq.c`
+- `block/mq-deadline.c`
+
+New Kairo concept:
+- prefetch reads carry urgency metadata that is weaker than decode immediacy but
+  stronger than background write traffic
+
+Relation to AI KV-cache traffic:
+- decode stalls are worst-case, but timely prefetch can prevent future stalls
+
+Temporary implementation:
+- attach `kairo_deadline_ns` and `kairo_prefetch_distance` to requests
+
+Still to validate:
+- how prefetch urgency interacts with existing write-starvation protection
+
+diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
+index 4700abc..f190ccd 100644
+--- a/include/linux/blk_types.h
++++ b/include/linux/blk_types.h
+@@
+ struct kairo_request_hints {
+ 	enum kairo_io_class io_class;
++	u64 kairo_deadline_ns;
++	u32 kairo_prefetch_distance;
+ 	u32 model_id;
+ 	u32 session_id;
+ 	u32 cache_pool_id;
+@@
+ diff --git a/block/blk-mq.c b/block/blk-mq.c
+ index 18fd0e3..1297dde 100644
+ --- a/block/blk-mq.c
+ +++ b/block/blk-mq.c
+ @@
++static void blk_mq_kairo_prefetch_defaults(struct request *rq)
++{
++	if (rq->kairo_hints.io_class != KAIRO_IO_PREFETCH_READ)
++		return;
++
++	rq->kairo_hints.kairo_prefetch_distance = 1;
++	rq->kairo_hints.kairo_deadline_ns = ktime_get_ns() + NSEC_PER_MSEC * 2;
++}
+@@
+  void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
+  {
+  	blk_mq_kairo_init_request(rq);
++	blk_mq_kairo_prefetch_defaults(rq);
+  }
+
+ diff --git a/block/mq-deadline.c b/block/mq-deadline.c
+ index 701fabc..2891f10 100644
+ --- a/block/mq-deadline.c
+ +++ b/block/mq-deadline.c
+ @@
++static inline bool dd_kairo_prefetch_urgent(struct request *rq)
++{
++	if (rq->kairo_hints.io_class != KAIRO_IO_PREFETCH_READ)
++		return false;
++
++	return time_after64(ktime_get_ns() + NSEC_PER_MSEC,
++			    rq->kairo_hints.kairo_deadline_ns);
++}
+@@
+ 	rq = dd_kairo_dispatch_decode_request(dd, now);
+ 	if (rq)
+ 		goto unlock;
++
++	rq = dd_kairo_dispatch_prefetch_request(dd, now);
++	if (rq)
++		goto unlock;
+@@
++static struct request *dd_kairo_dispatch_prefetch_request(struct deadline_data *dd,
++							  unsigned long latest_start)
++{
++	struct dd_per_prio *per_prio = &dd->per_prio[DD_RT_PRIO];
++	struct request *rq;
++
++	list_for_each_entry(rq, &per_prio->fifo_list[DD_READ], queuelist) {
++		if (!dd_kairo_prefetch_urgent(rq))
++			continue;
++		if (started_after(dd, rq, latest_start))
++			return NULL;
++		return rq;
++	}
++
++	return NULL;
++}
