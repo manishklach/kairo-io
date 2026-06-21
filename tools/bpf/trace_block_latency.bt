@@ -1,0 +1,25 @@
+#!/usr/bin/env bpftrace
+
+BEGIN
+{
+  printf("Tracing block issue/complete latency... Hit Ctrl-C to end.\n");
+}
+
+tracepoint:block:block_rq_issue
+{
+  @start[args->dev, args->sector] = nsecs;
+  @rwflag[args->dev, args->sector] = args->rwbs;
+}
+
+tracepoint:block:block_rq_complete
+/@start[args->dev, args->sector]/
+{
+  $delta_us = (nsecs - @start[args->dev, args->sector]) / 1000;
+  printf("dev=%d sector=%llu rwbs=%s latency_us=%llu\n",
+         args->dev,
+         args->sector,
+         str(@rwflag[args->dev, args->sector]),
+         $delta_us);
+  delete(@start[args->dev, args->sector]);
+  delete(@rwflag[args->dev, args->sector]);
+}

@@ -126,6 +126,25 @@ Or:
 ./scripts/run_kairo_poc.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
+## Validation Path
+
+Use the runtime validator to confirm the experimental kernel path is live and
+that Kairo counters move under the AI inference-like KV-cache workload:
+
+```bash
+./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+Use the A/B runner to compare baseline vs Kairo on the same generic NVMe SSD:
+
+```bash
+./scripts/run_ab_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+Track local validation status in:
+
+- [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
+
 ## Repository Layout
 
 - [docs/architecture.md](docs/architecture.md)

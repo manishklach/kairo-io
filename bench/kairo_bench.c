@@ -63,6 +63,25 @@ struct kairo_stats {
     uint64_t ioprio_write_fail;
 };
 
+struct kairo_stats_snapshot {
+    uint64_t total_decode_reads;
+    uint64_t total_prefetch_reads;
+    uint64_t total_writes;
+    uint64_t total_decode_bytes;
+    uint64_t total_prefetch_bytes;
+    uint64_t total_write_bytes;
+    uint64_t decode_latency_samples;
+    long double decode_latency_sum_us;
+    double decode_latency_max_us;
+    double *decode_latencies_us;
+    uint64_t ioprio_decode_ok;
+    uint64_t ioprio_decode_fail;
+    uint64_t ioprio_prefetch_ok;
+    uint64_t ioprio_prefetch_fail;
+    uint64_t ioprio_write_ok;
+    uint64_t ioprio_write_fail;
+};
+
 struct kairo_worker_ctx {
     int fd;
     const struct kairo_config *cfg;
@@ -354,6 +373,28 @@ static void record_write(struct kairo_stats *stats, size_t bytes)
     pthread_mutex_unlock(&stats->lock);
 }
 
+static void snapshot_stats(struct kairo_stats *stats, struct kairo_stats_snapshot *snapshot)
+{
+    pthread_mutex_lock(&stats->lock);
+    snapshot->total_decode_reads = stats->total_decode_reads;
+    snapshot->total_prefetch_reads = stats->total_prefetch_reads;
+    snapshot->total_writes = stats->total_writes;
+    snapshot->total_decode_bytes = stats->total_decode_bytes;
+    snapshot->total_prefetch_bytes = stats->total_prefetch_bytes;
+    snapshot->total_write_bytes = stats->total_write_bytes;
+    snapshot->decode_latency_samples = stats->decode_latency_samples;
+    snapshot->decode_latency_sum_us = stats->decode_latency_sum_us;
+    snapshot->decode_latency_max_us = stats->decode_latency_max_us;
+    snapshot->decode_latencies_us = stats->decode_latencies_us;
+    snapshot->ioprio_decode_ok = stats->ioprio_decode_ok;
+    snapshot->ioprio_decode_fail = stats->ioprio_decode_fail;
+    snapshot->ioprio_prefetch_ok = stats->ioprio_prefetch_ok;
+    snapshot->ioprio_prefetch_fail = stats->ioprio_prefetch_fail;
+    snapshot->ioprio_write_ok = stats->ioprio_write_ok;
+    snapshot->ioprio_write_fail = stats->ioprio_write_fail;
+    pthread_mutex_unlock(&stats->lock);
+}
+
 static off_t next_read_block(const struct kairo_worker_ctx *ctx, off_t op_index, off_t block_count)
 {
     if (!ctx->cfg->random_read)
@@ -470,31 +511,34 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     double prefetch_read_mbps;
     double write_mbps;
     double *sorted = NULL;
+    struct kairo_stats_snapshot snapshot;
 
-    if (stats->decode_latency_samples > 0) {
-        sorted = malloc((size_t)stats->decode_latency_samples * sizeof(*sorted));
+    snapshot_stats((struct kairo_stats *)stats, &snapshot);
+
+    if (snapshot.decode_latency_samples > 0) {
+        sorted = malloc((size_t)snapshot.decode_latency_samples * sizeof(*sorted));
         if (sorted == NULL) {
             perror("malloc");
             exit(EXIT_FAILURE);
         }
         memcpy(sorted,
-               stats->decode_latencies_us,
-               (size_t)stats->decode_latency_samples * sizeof(*sorted));
-        qsort(sorted, (size_t)stats->decode_latency_samples, sizeof(*sorted), compare_double);
-        decode_avg_us = (double)(stats->decode_latency_sum_us / (long double)stats->decode_latency_samples);
-        decode_p50_us = percentile_from_sorted(sorted, stats->decode_latency_samples, 50.0);
-        decode_p95_us = percentile_from_sorted(sorted, stats->decode_latency_samples, 95.0);
-        decode_p99_us = percentile_from_sorted(sorted, stats->decode_latency_samples, 99.0);
+               snapshot.decode_latencies_us,
+               (size_t)snapshot.decode_latency_samples * sizeof(*sorted));
+        qsort(sorted, (size_t)snapshot.decode_latency_samples, sizeof(*sorted), compare_double);
+        decode_avg_us = (double)(snapshot.decode_latency_sum_us / (long double)snapshot.decode_latency_samples);
+        decode_p50_us = percentile_from_sorted(sorted, snapshot.decode_latency_samples, 50.0);
+        decode_p95_us = percentile_from_sorted(sorted, snapshot.decode_latency_samples, 95.0);
+        decode_p99_us = percentile_from_sorted(sorted, snapshot.decode_latency_samples, 99.0);
     }
 
     decode_read_mbps = cfg->runtime_seconds
-        ? ((double)stats->total_decode_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
+        ? ((double)snapshot.total_decode_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
         : 0.0;
     prefetch_read_mbps = cfg->runtime_seconds
-        ? ((double)stats->total_prefetch_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
+        ? ((double)snapshot.total_prefetch_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
         : 0.0;
     write_mbps = cfg->runtime_seconds
-        ? ((double)stats->total_write_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
+        ? ((double)snapshot.total_write_bytes / (1024.0 * 1024.0)) / (double)cfg->runtime_seconds
         : 0.0;
 
     puts("kairo_bench summary");
@@ -502,23 +546,23 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("decode_threads=%u\n", cfg->decode_threads);
     printf("prefetch_threads=%u\n", cfg->prefetch_threads);
     printf("write_threads=%u\n", cfg->write_threads);
-    printf("decode_total_reads=%" PRIu64 "\n", stats->total_decode_reads);
-    printf("prefetch_total_reads=%" PRIu64 "\n", stats->total_prefetch_reads);
-    printf("write_total_ops=%" PRIu64 "\n", stats->total_writes);
+    printf("decode_total_reads=%" PRIu64 "\n", snapshot.total_decode_reads);
+    printf("prefetch_total_reads=%" PRIu64 "\n", snapshot.total_prefetch_reads);
+    printf("write_total_ops=%" PRIu64 "\n", snapshot.total_writes);
     printf("decode_avg_us=%.2f\n", decode_avg_us);
     printf("decode_p50_us=%.2f\n", decode_p50_us);
     printf("decode_p95_us=%.2f\n", decode_p95_us);
     printf("decode_p99_us=%.2f\n", decode_p99_us);
-    printf("decode_max_us=%.2f\n", stats->decode_latency_max_us);
+    printf("decode_max_us=%.2f\n", snapshot.decode_latency_max_us);
     printf("decode_read_MBps=%.2f\n", decode_read_mbps);
     printf("prefetch_read_MBps=%.2f\n", prefetch_read_mbps);
     printf("write_MBps=%.2f\n", write_mbps);
-    printf("ioprio_decode_ok=%" PRIu64 "\n", stats->ioprio_decode_ok);
-    printf("ioprio_decode_fail=%" PRIu64 "\n", stats->ioprio_decode_fail);
-    printf("ioprio_prefetch_ok=%" PRIu64 "\n", stats->ioprio_prefetch_ok);
-    printf("ioprio_prefetch_fail=%" PRIu64 "\n", stats->ioprio_prefetch_fail);
-    printf("ioprio_write_ok=%" PRIu64 "\n", stats->ioprio_write_ok);
-    printf("ioprio_write_fail=%" PRIu64 "\n", stats->ioprio_write_fail);
+    printf("ioprio_decode_ok=%" PRIu64 "\n", snapshot.ioprio_decode_ok);
+    printf("ioprio_decode_fail=%" PRIu64 "\n", snapshot.ioprio_decode_fail);
+    printf("ioprio_prefetch_ok=%" PRIu64 "\n", snapshot.ioprio_prefetch_ok);
+    printf("ioprio_prefetch_fail=%" PRIu64 "\n", snapshot.ioprio_prefetch_fail);
+    printf("ioprio_write_ok=%" PRIu64 "\n", snapshot.ioprio_write_ok);
+    printf("ioprio_write_fail=%" PRIu64 "\n", snapshot.ioprio_write_fail);
     puts("todo=replace pthread pread/pwrite path with io_uring worker path");
 
     free(sorted);
