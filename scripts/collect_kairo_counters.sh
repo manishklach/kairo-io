@@ -71,6 +71,11 @@ counter_names=(
   kairo_rwf_hinted_requests
   kairo_bio_hinted_requests
   kairo_hint_fallback_requests
+  kairo_ephemeral_requests
+  kairo_recomputable_requests
+  kairo_no_durability_requests
+  kairo_avoid_pagecache_requests
+  kairo_evict_cleanup_requests
 )
 
 for name in "${counter_names[@]}"; do

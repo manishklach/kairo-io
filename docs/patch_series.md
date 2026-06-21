@@ -14,7 +14,7 @@ local research prototype, not an upstream submission plan.
 | `0003` | io_uring hint plumbing | `io_uring`, `fs`, `blk-mq` metadata | experimental intent propagation from userspace to `kiocb` and conceptual `bio/request` metadata |
 | `0004` | large-block coalescing | `blk-merge`, `blk-mq` | merge-bias helpers, per-request merge flags, request-size observability |
 | `0005` | prefetch deadlines | `mq-deadline` | separate prefetch urgency |
-| `0006` | ephemeral semantics | `fs`, `mm`, `block` | recomputable KV-cache behavior |
+| `0006` | ephemeral semantics | `fs`, `mm`, `block` | recomputable, ephemeral, avoid-pagecache, and cleanup semantics |
 | `0007` | placement/lifetime | `blk-mq`, `nvme` | model/session/lifetime metadata |
 | `0008` | NVMe mapping | `drivers/nvme/host` | generic Streams/FDP/ZNS mapping hooks |
 | `0009` | observability | `mq-deadline`, `debugfs` | counters proving Kairo code paths: dispatch, merge instrumentation, request-size histogram |
@@ -35,6 +35,7 @@ local research prototype, not an upstream submission plan.
 - current benchmark signaling still relies on `ioprio` by default
 - `0003` strengthens the local `RWF_KAIRO_*` flow for future `io_uring` use
 - Stage 4 benchmark runs can switch between `--hint-mode ioprio|rwf|both`
+- Stage 5 benchmark runs can switch between `--semantic-mode normal|ephemeral|recomputable|ephemeral-recomputable`
 - later patches intentionally add local-only request metadata to show where Kairo semantics would live
 - NVMe backend mapping remains feature-detected and optional
 - merge instrumentation uses per-request flags (`KAIRO_HINT_MERGE_ATTEMPTED`, `KAIRO_HINT_MERGE_SUCCESS`)
@@ -56,5 +57,6 @@ Immediate validation remains centered on:
 - whether merge bias belongs in generic `blk-merge` or only in Kairo-classified paths
 - whether `RWF_KAIRO_*` should stay RFC-only or move to a different local hint path
 - how much of the Stage 4 scaffold should live in `kiocb` versus direct `bio` metadata
+- where Stage 5 semantic intent should be interpreted without undermining explicit durability operations
 - whether the request-size histogram is better served by debugfs snapshots
 - how much value generic NVMe Streams/FDP/ZNS mapping provides without workload-specific placement control

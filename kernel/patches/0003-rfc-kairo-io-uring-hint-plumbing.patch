@@ -1,7 +1,7 @@
 From 3333333333330000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kairo POC <kairo-poc@local>
-Date: Sun, 21 Jun 2026 15:40:00 -0700
-Subject: [RFC/POC PATCH 3/9] io_uring: add Kairo hint propagation scaffold
+Date: Sun, 21 Jun 2026 17:00:00 -0700
+Subject: [RFC/POC PATCH 3/9] io_uring: extend Kairo hint propagation scaffold
 
 Subsystems touched:
 - `include/uapi/linux/fs.h`
@@ -10,10 +10,11 @@ Subsystems touched:
 - `fs/read_write.c`
 - `io_uring/rw.c`
 
-Stage 4 goal:
-- replace the temporary ioprio-only signaling path with a local experimental
-  hint path that looks more like how an AI runtime would express decode,
-  prefetch, prefill, and recompute intent
+Stage 4 and Stage 5 goal:
+- carry explicit Kairo request intent from userspace into `kiocb`, then into
+  conceptual `bio` and `request` metadata
+- support both class hints (decode, prefetch, prefill, recompute) and semantic
+  hints (ephemeral, avoid-pagecache, no-strong-durability, evict-cleanup)
 
 Local RFC/POC notes:
 - this is a local RFC/POC metadata path
@@ -23,17 +24,24 @@ Local RFC/POC notes:
 
 Intended flow:
 
-  userspace benchmark
-      -> `preadv2()` / `pwritev2()` / `io_uring` SQE flags
-      -> `kiocb->ki_flags`
-      -> `bio->kairo_hints`
-      -> `request->kairo_hints`
-      -> `kairo_classify_rq()`
-      -> `mq-deadline` scheduling
+```text
+userspace benchmark
+    -> preadv2()/pwritev2() or io_uring SQE flags
+    -> kiocb->ki_flags
+    -> bio->kairo_hints.{io_class,flags}
+    -> request->kairo_hints.{io_class,flags}
+    -> kairo_classify_rq()
+    -> mq-deadline scheduling and observability
+```
 
-This patch deliberately shows concrete integration points in `fs/read_write.c`
-and `io_uring/rw.c` so the metadata flow is visible even before the full local
-kernel experiment is compile-validated.
+Explicit semantic example:
+
+```text
+RWF_KAIRO_EPHEMERAL
+    -> IOCB_KAIRO_EPHEMERAL
+    -> bio->kairo_hints.flags
+    -> rq->kairo_hints.flags
+```
 
 diff --git a/include/uapi/linux/fs.h b/include/uapi/linux/fs.h
 index 3417ea1..61aa111 100644
@@ -44,20 +52,28 @@ index 3417ea1..61aa111 100644
 + * Local Kairo RFC/POC flags carried through preadv2/pwritev2 and io_uring.
 + * This is not a proposed stable UAPI.
 + */
-+#define RWF_KAIRO_DECODE      ((__kernel_rwf_t)0x10000000)
-+#define RWF_KAIRO_PREFETCH    ((__kernel_rwf_t)0x20000000)
-+#define RWF_KAIRO_PREFILL     ((__kernel_rwf_t)0x40000000)
-+#define RWF_KAIRO_RECOMPUTE   ((__kernel_rwf_t)0x80000000)
-+
++#define RWF_KAIRO_DECODE          ((__kernel_rwf_t)0x10000000)
++#define RWF_KAIRO_PREFETCH        ((__kernel_rwf_t)0x20000000)
++#define RWF_KAIRO_PREFILL         ((__kernel_rwf_t)0x40000000)
++#define RWF_KAIRO_RECOMPUTE       ((__kernel_rwf_t)0x80000000)
++#define RWF_KAIRO_EPHEMERAL       ((__kernel_rwf_t)0x0100000000)
++#define RWF_KAIRO_AVOID_PCACHE    ((__kernel_rwf_t)0x0200000000)
++#define RWF_KAIRO_NO_DURABILITY   ((__kernel_rwf_t)0x0400000000)
++#define RWF_KAIRO_EVICT_CLEANUP   ((__kernel_rwf_t)0x0800000000)
+
 diff --git a/include/linux/fs.h b/include/linux/fs.h
 index 74a4c11..7d44b22 100644
 --- a/include/linux/fs.h
 +++ b/include/linux/fs.h
 @@
-+#define IOCB_KAIRO_DECODE     BIT_ULL(33)
-+#define IOCB_KAIRO_PREFETCH   BIT_ULL(34)
-+#define IOCB_KAIRO_PREFILL    BIT_ULL(35)
-+#define IOCB_KAIRO_RECOMPUTE  BIT_ULL(36)
++#define IOCB_KAIRO_DECODE          BIT_ULL(33)
++#define IOCB_KAIRO_PREFETCH        BIT_ULL(34)
++#define IOCB_KAIRO_PREFILL         BIT_ULL(35)
++#define IOCB_KAIRO_RECOMPUTE       BIT_ULL(36)
++#define IOCB_KAIRO_EPHEMERAL       BIT_ULL(37)
++#define IOCB_KAIRO_AVOID_PAGECACHE BIT_ULL(38)
++#define IOCB_KAIRO_NO_DURABILITY   BIT_ULL(39)
++#define IOCB_KAIRO_EVICT_CLEANUP   BIT_ULL(40)
 +
 +static inline bool kiocb_is_kairo_decode(struct kiocb *iocb)
 +{
@@ -79,6 +95,26 @@ index 74a4c11..7d44b22 100644
 +	return iocb->ki_flags & IOCB_KAIRO_RECOMPUTE;
 +}
 +
++static inline bool kiocb_is_kairo_ephemeral(struct kiocb *iocb)
++{
++	return iocb->ki_flags & IOCB_KAIRO_EPHEMERAL;
++}
++
++static inline bool kiocb_is_kairo_avoid_pagecache(struct kiocb *iocb)
++{
++	return iocb->ki_flags & IOCB_KAIRO_AVOID_PAGECACHE;
++}
++
++static inline bool kiocb_is_kairo_no_durability(struct kiocb *iocb)
++{
++	return iocb->ki_flags & IOCB_KAIRO_NO_DURABILITY;
++}
++
++static inline bool kiocb_is_kairo_evict_cleanup(struct kiocb *iocb)
++{
++	return iocb->ki_flags & IOCB_KAIRO_EVICT_CLEANUP;
++}
++
 +static inline void kiocb_set_kairo_flags(struct kiocb *iocb, rwf_t rwf)
 +{
 +	if (rwf & RWF_KAIRO_DECODE)
@@ -89,6 +125,14 @@ index 74a4c11..7d44b22 100644
 +		iocb->ki_flags |= IOCB_KAIRO_PREFILL;
 +	if (rwf & RWF_KAIRO_RECOMPUTE)
 +		iocb->ki_flags |= IOCB_KAIRO_RECOMPUTE;
++	if (rwf & RWF_KAIRO_EPHEMERAL)
++		iocb->ki_flags |= IOCB_KAIRO_EPHEMERAL;
++	if (rwf & RWF_KAIRO_AVOID_PCACHE)
++		iocb->ki_flags |= IOCB_KAIRO_AVOID_PAGECACHE;
++	if (rwf & RWF_KAIRO_NO_DURABILITY)
++		iocb->ki_flags |= IOCB_KAIRO_NO_DURABILITY;
++	if (rwf & RWF_KAIRO_EVICT_CLEANUP)
++		iocb->ki_flags |= IOCB_KAIRO_EVICT_CLEANUP;
 +}
 
 diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
@@ -128,12 +172,23 @@ index e2886d9..f4bb333 100644
 +static inline void bio_set_kairo_from_kiocb(struct bio *bio, struct kiocb *iocb)
 +{
 +	bio->kairo_hints.io_class = kairo_class_from_kiocb(iocb, bio_data_dir(bio));
++	if (kiocb_is_kairo_ephemeral(iocb))
++		bio->kairo_hints.flags |= KAIRO_HINT_EPHEMERAL;
++	if (kiocb_is_kairo_recompute(iocb))
++		bio->kairo_hints.flags |= KAIRO_HINT_RECOMPUTABLE;
++	if (kiocb_is_kairo_avoid_pagecache(iocb))
++		bio->kairo_hints.flags |= KAIRO_HINT_AVOID_PAGECACHE;
++	if (kiocb_is_kairo_no_durability(iocb))
++		bio->kairo_hints.flags |= KAIRO_HINT_NO_STRONG_DURABILITY;
++	if (kiocb_is_kairo_evict_cleanup(iocb))
++		bio->kairo_hints.flags |= KAIRO_HINT_EVICT_CLEANUP;
 +}
 +
 +static inline void rq_set_kairo_from_bio(struct request *rq, struct bio *bio)
 +{
 +	if (bio->kairo_hints.io_class != KAIRO_IO_NONE)
 +		rq->kairo_hints.io_class = bio->kairo_hints.io_class;
++	rq->kairo_hints.flags |= bio->kairo_hints.flags;
 +}
 
 diff --git a/fs/read_write.c b/fs/read_write.c
@@ -148,6 +203,10 @@ index c1a77a0..42af1cc 100644
 +	 * move userspace intent from preadv2()/pwritev2() style flags into
 +	 * kiocb metadata so the block path can later classify requests without
 +	 * relying only on ioprio.
++	 *
++	 * Stage 5 semantic flow:
++	 * RWF_KAIRO_EPHEMERAL -> IOCB_KAIRO_EPHEMERAL ->
++	 * bio->kairo_hints.flags -> rq->kairo_hints.flags
 +	 */
 +	kiocb_set_kairo_flags(kiocb, flags);
  	...
@@ -164,8 +223,8 @@ index 9ad0f9b..c8719a0 100644
 +	/*
 +	 * Local Kairo RFC/POC:
 +	 * SQE rw flags -> kiocb flags -> bio/request metadata -> blk-mq
-+	 * classification. Stage 4 keeps the ioprio path as a fallback so
-+	 * unpatched kernels still run the benchmark.
++	 * classification. The ioprio path stays as fallback so unpatched
++	 * kernels can still run the benchmark-driven prototype.
 +	 */
 +	kiocb_set_kairo_flags(kiocb, READ_ONCE(req->rw.flags));
 +}

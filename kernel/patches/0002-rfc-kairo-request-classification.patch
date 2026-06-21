@@ -31,11 +31,14 @@ index f288c94..e2886d9 100755
 +/*
 + * Stage 4 direction:
 + *   kiocb flags -> bio Kairo class -> request Kairo hints
-+ * Local helper names expected by the later patch stack:
-+ *   kairo_class_from_kiocb()
-+ *   bio_set_kairo_from_kiocb()
-+ *   rq_set_kairo_from_bio()
-+ */
+ + * Local helper names expected by the later patch stack:
+ + *   kairo_class_from_kiocb()
+ + *   bio_set_kairo_from_kiocb()
+ + *   rq_set_kairo_from_bio()
++ * Stage 5 direction:
++ *   rq->kairo_hints.flags carries ephemeral, recomputable, no-durability,
++ *   avoid-pagecache, and cleanup semantics for later accounting and policy.
+ + */
 +
  /*
   * From most significant bit:

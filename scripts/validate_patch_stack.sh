@@ -78,8 +78,38 @@ if ! grep -q 'kiocb_set_kairo_flags' "$PATCH_DIR/0003-rfc-kairo-io-uring-hint-pl
   exit 1
 fi
 
+if ! grep -q 'KAIRO_HINT_EPHEMERAL' "$PATCH_DIR/0006-rfc-kairo-ephemeral-cache-semantics.patch"; then
+  echo "[kairo] 0006 does not define KAIRO_HINT_EPHEMERAL" >&2
+  exit 1
+fi
+
+if ! grep -q 'KAIRO_HINT_RECOMPUTABLE' "$PATCH_DIR/0006-rfc-kairo-ephemeral-cache-semantics.patch"; then
+  echo "[kairo] 0006 does not define KAIRO_HINT_RECOMPUTABLE" >&2
+  exit 1
+fi
+
+if ! grep -q 'kairo_is_ephemeral' "$PATCH_DIR/0006-rfc-kairo-ephemeral-cache-semantics.patch"; then
+  echo "[kairo] 0006 does not define kairo_is_ephemeral" >&2
+  exit 1
+fi
+
+if ! grep -q 'kairo_is_recomputable' "$PATCH_DIR/0006-rfc-kairo-ephemeral-cache-semantics.patch"; then
+  echo "[kairo] 0006 does not define kairo_is_recomputable" >&2
+  exit 1
+fi
+
 if ! grep -q -- '--hint-mode' "$REPO_ROOT/bench/kairo_bench.c"; then
   echo "[kairo] benchmark does not support --hint-mode" >&2
+  exit 1
+fi
+
+if ! grep -q 'KAIRO_RWF_EPHEMERAL' "$REPO_ROOT/include/kairo_hints.h"; then
+  echo "[kairo] include/kairo_hints.h does not define KAIRO_RWF_EPHEMERAL" >&2
+  exit 1
+fi
+
+if ! grep -q -- '--semantic-mode' "$REPO_ROOT/bench/kairo_bench.c"; then
+  echo "[kairo] benchmark does not support --semantic-mode" >&2
   exit 1
 fi
 
@@ -95,6 +125,16 @@ fi
 
 if ! grep -q 'kairo_rwf_hinted_requests' "$PATCH_DIR/0009-rfc-kairo-sysfs-debug-counters.patch"; then
   echo "[kairo] 0009 does not reference kairo_rwf_hinted_requests" >&2
+  exit 1
+fi
+
+if ! grep -q 'kairo_ephemeral_requests' "$PATCH_DIR/0009-rfc-kairo-sysfs-debug-counters.patch"; then
+  echo "[kairo] 0009 does not reference kairo_ephemeral_requests" >&2
+  exit 1
+fi
+
+if ! grep -q 'kairo_recomputable_requests' "$PATCH_DIR/0009-rfc-kairo-sysfs-debug-counters.patch"; then
+  echo "[kairo] 0009 does not reference kairo_recomputable_requests" >&2
   exit 1
 fi
 

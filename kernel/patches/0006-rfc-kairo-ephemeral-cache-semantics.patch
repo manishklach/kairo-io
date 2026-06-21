@@ -1,50 +1,122 @@
 From 6666666666660000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kairo POC <kairo-poc@local>
-Date: Sun, 21 Jun 2026 14:25:00 -0700
-Subject: [RFC/POC PATCH 6/9] fs: add experimental Kairo ephemeral cache semantics
+Date: Sun, 21 Jun 2026 17:05:00 -0700
+Subject: [RFC/POC PATCH 6/9] fs: add Kairo ephemeral and recomputable semantics
 
-Subsystem touched:
+Subsystems touched:
 - `include/linux/fs.h`
+- `include/linux/blk_types.h`
 - `fs/open.c`
 - `fs/fcntl.c`
 - `mm/filemap.c`
 - `block/blk-core.c`
+- `block/blk-mq.c`
 
-New Kairo concept:
-- recomputable, ephemeral KV-cache data should be treated differently from
-  durability-critical ordinary files
+Stage 5 goal:
+- make it explicit that some AI KV-cache data is ephemeral, recomputable, and
+  not worth treating identically to ordinary durable file data
 
-Relation to AI KV-cache traffic:
-- KV cache can often be regenerated, is immutable after write, and should avoid
-  polluting page cache when direct I/O paths are practical
+Local RFC/POC principles:
+- this is semantic intent, not stable UAPI
+- this patch does not claim the kernel may ignore explicit `fsync()`, `sync()`,
+  or other durability requests
+- `AVOID_PAGECACHE` is an intent signal first, not a blanket bypass rule
+- `NO_STRONG_DURABILITY` means "do not add extra durability work solely for
+  recomputable cache data", not "ignore application sync semantics"
 
-Temporary implementation:
-- local-only file and kiocb flags carrying ephemeral/recomputable semantics
+New semantic bits:
 
-Still to validate:
-- what the minimum useful semantic set is for real experiments
+```c
+#define KAIRO_HINT_RECOMPUTABLE         BIT(4)
+#define KAIRO_HINT_EPHEMERAL            BIT(5)
+#define KAIRO_HINT_NO_STRONG_DURABILITY BIT(6)
+#define KAIRO_HINT_AVOID_PAGECACHE      BIT(7)
+#define KAIRO_HINT_EVICT_CLEANUP        BIT(8)
+```
+
+Intended metadata flow:
+
+```text
+RWF_KAIRO_EPHEMERAL
+    -> IOCB_KAIRO_EPHEMERAL
+    -> bio->kairo_hints.flags
+    -> rq->kairo_hints.flags
+```
+
+diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
+index f4bb333..f5cc444 100644
+--- a/include/linux/blk_types.h
++++ b/include/linux/blk_types.h
+@@
++#define KAIRO_HINT_RECOMPUTABLE         BIT(4)
++#define KAIRO_HINT_EPHEMERAL            BIT(5)
++#define KAIRO_HINT_NO_STRONG_DURABILITY BIT(6)
++#define KAIRO_HINT_AVOID_PAGECACHE      BIT(7)
++#define KAIRO_HINT_EVICT_CLEANUP        BIT(8)
+@@
++static inline bool kairo_is_recomputable(struct request *rq)
++{
++	return rq->kairo_hints.flags & KAIRO_HINT_RECOMPUTABLE;
++}
++
++static inline bool kairo_is_ephemeral(struct request *rq)
++{
++	return rq->kairo_hints.flags & KAIRO_HINT_EPHEMERAL;
++}
++
++static inline bool kairo_avoid_pagecache(struct request *rq)
++{
++	return rq->kairo_hints.flags & KAIRO_HINT_AVOID_PAGECACHE;
++}
++
++static inline bool kairo_no_strong_durability(struct request *rq)
++{
++	return rq->kairo_hints.flags & KAIRO_HINT_NO_STRONG_DURABILITY;
++}
++
++static inline bool kairo_is_evict_cleanup(struct request *rq)
++{
++	return rq->kairo_hints.flags & KAIRO_HINT_EVICT_CLEANUP;
++}
 
 diff --git a/include/linux/fs.h b/include/linux/fs.h
-index 7d11b02..9341c70 100644
+index 7d44b22..9341c70 100644
 --- a/include/linux/fs.h
 +++ b/include/linux/fs.h
 @@
-+#define FMODE_KAIRO_EPHEMERAL	((fmode_t)BIT(20))
-+#define FMODE_KAIRO_RECOMPUTABLE ((fmode_t)BIT(21))
-+#define IOCB_KAIRO_NO_DURABILITY_STRONG BIT_ULL(37)
++#define IOCB_KAIRO_RECOMPUTABLE   BIT_ULL(41)
++#define IOCB_KAIRO_EPHEMERAL      BIT_ULL(42)
++#define IOCB_KAIRO_NO_DURABILITY  BIT_ULL(43)
++#define IOCB_KAIRO_AVOID_PCACHE   BIT_ULL(44)
++#define IOCB_KAIRO_EVICT_CLEANUP  BIT_ULL(45)
+
+diff --git a/fs/open.c b/fs/open.c
+index 8d11221..8d112ff 100644
+--- a/fs/open.c
++++ b/fs/open.c
 @@
-+static inline bool kairo_file_ephemeral(const struct file *file)
-+{
-+	return file->f_mode & FMODE_KAIRO_EPHEMERAL;
-+}
++/*
++ * Local Kairo RFC/POC:
++ * session-scoped KV-cache files may be opened with semantic intent that later
++ * reaches kiocb, bio, and request metadata. Open-time state is not enough to
++ * force policy, but it can seed later request-level handling.
++ */
+
+diff --git a/fs/fcntl.c b/fs/fcntl.c
+index 81a1c22..34f1c9d 100644
+--- a/fs/fcntl.c
++++ b/fs/fcntl.c
+@@
++#define F_SET_KAIRO_EPHEMERAL      (F_LINUX_SPECIFIC_BASE + 14)
++#define F_SET_KAIRO_RECOMPUTABLE   (F_LINUX_SPECIFIC_BASE + 15)
++#define F_SET_KAIRO_NO_DURABILITY  (F_LINUX_SPECIFIC_BASE + 16)
++#define F_SET_KAIRO_AVOID_PCACHE   (F_LINUX_SPECIFIC_BASE + 17)
++#define F_SET_KAIRO_EVICT_CLEANUP  (F_LINUX_SPECIFIC_BASE + 18)
 +
- diff --git a/fs/fcntl.c b/fs/fcntl.c
- index 81a1c22..34f1c9d 100644
- --- a/fs/fcntl.c
- +++ b/fs/fcntl.c
- @@
-+#define F_SET_KAIRO_EPHEMERAL	(F_LINUX_SPECIFIC_BASE + 14)
-+#define F_SET_KAIRO_RECOMPUTABLE (F_LINUX_SPECIFIC_BASE + 15)
++/*
++ * Local RFC/POC only:
++ * these are experiment controls for Kairo validation, not stable user ABI.
++ */
 @@
 +	case F_SET_KAIRO_EPHEMERAL:
 +		filp->f_mode |= FMODE_KAIRO_EPHEMERAL;
@@ -53,23 +125,65 @@ index 7d11b02..9341c70 100644
 +		filp->f_mode |= FMODE_KAIRO_RECOMPUTABLE;
 +		return 0;
 +
- diff --git a/mm/filemap.c b/mm/filemap.c
- index 3c1921d..fc3ba71 100644
- --- a/mm/filemap.c
- +++ b/mm/filemap.c
- @@
-+	if (kairo_file_ephemeral(file)) {
-+		/*
-+		 * RFC/POC: prefer not to let transient KV-cache data dominate
-+		 * normal file-cache residency. Real policy remains to validate.
-+		 */
-+		mapping_set_gfp_mask(mapping, GFP_NOWAIT);
+diff --git a/mm/filemap.c b/mm/filemap.c
+index 3c1921d..fc3ba71 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@
++	/*
++	 * KAIRO_AVOID_PAGECACHE:
++	 * prefer direct I/O or low-cache-pollution paths where supported, but
++	 * do not forcibly bypass page cache from an arbitrary MM layer.
++	 * Stage 5 keeps this as an intent signal and instrumentation hook.
++	 */
++	if (kairo_avoid_pagecache(rq)) {
++		...
 +	}
++
++	/*
++	 * KAIRO_EPHEMERAL:
++	 * transient KV-cache data should not dominate ordinary page-cache
++	 * residency if better direct or short-lived paths are available.
++	 */
 
- diff --git a/block/blk-core.c b/block/blk-core.c
- index b3408a1..a0e6c10 100644
- --- a/block/blk-core.c
- +++ b/block/blk-core.c
- @@
-+	if (iocb->ki_flags & IOCB_KAIRO_RECOMPUTE)
-+		req->kairo_hints.flags |= BIT(4);
+diff --git a/block/blk-core.c b/block/blk-core.c
+index b3408a1..a0e6c10 100644
+--- a/block/blk-core.c
++++ b/block/blk-core.c
+@@
++	/*
++	 * Stage 5 local RFC/POC:
++	 * copy semantic intent into request metadata so later scheduling,
++	 * accounting, and cleanup decisions can see it.
++	 */
++	if (bio->kairo_hints.flags)
++		req->kairo_hints.flags |= bio->kairo_hints.flags;
++
++	if (iocb->ki_flags & IOCB_KAIRO_RECOMPUTABLE)
++		req->kairo_hints.flags |= KAIRO_HINT_RECOMPUTABLE;
++	if (iocb->ki_flags & IOCB_KAIRO_EPHEMERAL)
++		req->kairo_hints.flags |= KAIRO_HINT_EPHEMERAL;
++	if (iocb->ki_flags & IOCB_KAIRO_NO_DURABILITY)
++		req->kairo_hints.flags |= KAIRO_HINT_NO_STRONG_DURABILITY;
++	if (iocb->ki_flags & IOCB_KAIRO_AVOID_PCACHE)
++		req->kairo_hints.flags |= KAIRO_HINT_AVOID_PAGECACHE;
++	if (iocb->ki_flags & IOCB_KAIRO_EVICT_CLEANUP)
++		req->kairo_hints.flags |= KAIRO_HINT_EVICT_CLEANUP;
+
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index 74c2142..84c3153 100644
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@
++	/*
++	 * KAIRO_NO_STRONG_DURABILITY:
++	 * do not issue extra flush/FUA-like behavior solely because the data is
++	 * cache-like, but do not violate explicit fsync/sync semantics.
++	 *
++	 * KAIRO_RECOMPUTABLE:
++	 * losing this cache content is acceptable if the runtime can regenerate it.
++	 *
++	 * KAIRO_EPHEMERAL:
++	 * cleanup can use punch-hole/discard style paths when the filesystem and
++	 * block path support them safely.
++	 */

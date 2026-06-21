@@ -1,6 +1,8 @@
-Stage 4 observability note:
+Stage 4 and Stage 5 observability note:
 - add hint-source counters so local experiments can distinguish explicit
   Kairo metadata from ioprio fallback and final request-op fallback
+- add semantic counters so local experiments can prove ephemeral,
+  recomputable, avoid-pagecache, and cleanup intent were carried
 
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
 index df06aa7..d593561 100755
@@ -21,6 +23,11 @@ index df06aa7..d593561 100755
 +	u64 kairo_rwf_hinted_requests;
 +	u64 kairo_bio_hinted_requests;
 +	u64 kairo_hint_fallback_requests;
++	u64 kairo_ephemeral_requests;
++	u64 kairo_recomputable_requests;
++	u64 kairo_no_durability_requests;
++	u64 kairo_avoid_pagecache_requests;
++	u64 kairo_evict_cleanup_requests;
 	u32 kairo_decode_budget_used;
  
  	/*
@@ -45,6 +52,11 @@ index df06aa7..d593561 100755
 +	 * kiocb/RWF-derived hints          -> kairo_rwf_hinted_requests
 +	 * ioprio-only fallback             -> kairo_ioprio_hinted_requests
 +	 * req_op fallback                  -> kairo_hint_fallback_requests
++	 * semantic flags                   -> kairo_ephemeral_requests,
++	 *                                     kairo_recomputable_requests,
++	 *                                     kairo_no_durability_requests,
++	 *                                     kairo_avoid_pagecache_requests,
++	 *                                     kairo_evict_cleanup_requests
 +	 */
 +
 +	switch (io_class) {
@@ -173,6 +185,51 @@ index df06aa7..d593561 100755
 +			  (unsigned long long)dd->kairo_hint_fallback_requests);
 +}
 +
++static ssize_t deadline_kairo_ephemeral_requests_show(struct elevator_queue *e,
++						      char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_ephemeral_requests);
++}
++
++static ssize_t deadline_kairo_recomputable_requests_show(struct elevator_queue *e,
++							 char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_recomputable_requests);
++}
++
++static ssize_t deadline_kairo_no_durability_requests_show(struct elevator_queue *e,
++							  char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_no_durability_requests);
++}
++
++static ssize_t deadline_kairo_avoid_pagecache_requests_show(struct elevator_queue *e,
++							    char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_avoid_pagecache_requests);
++}
++
++static ssize_t deadline_kairo_evict_cleanup_requests_show(struct elevator_queue *e,
++							  char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_evict_cleanup_requests);
++}
++
  #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
  static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
  {									\
@@ -191,6 +248,11 @@ index df06aa7..d593561 100755
 +	DD_RO_ATTR(kairo_rwf_hinted_requests),
 +	DD_RO_ATTR(kairo_bio_hinted_requests),
 +	DD_RO_ATTR(kairo_hint_fallback_requests),
++	DD_RO_ATTR(kairo_ephemeral_requests),
++	DD_RO_ATTR(kairo_recomputable_requests),
++	DD_RO_ATTR(kairo_no_durability_requests),
++	DD_RO_ATTR(kairo_avoid_pagecache_requests),
++	DD_RO_ATTR(kairo_evict_cleanup_requests),
  	__ATTR_NULL
  };
  

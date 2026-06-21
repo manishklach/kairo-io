@@ -72,6 +72,8 @@ struct kairo_config {
     unsigned int cluster_size_blocks;
     size_t fragment_size_bytes;
     enum kairo_hint_mode hint_mode;
+    enum kairo_semantic_mode semantic_mode;
+    bool evict_threads_explicit;
 };
 
 struct kairo_stats {
@@ -100,6 +102,14 @@ struct kairo_stats {
     uint64_t rwf_prefetch_fail;
     uint64_t rwf_prefill_attempts;
     uint64_t rwf_prefill_fail;
+    uint64_t rwf_ephemeral_attempts;
+    uint64_t rwf_ephemeral_fail;
+    uint64_t rwf_recompute_attempts;
+    uint64_t rwf_recompute_fail;
+    uint64_t rwf_no_durability_attempts;
+    uint64_t rwf_no_durability_fail;
+    uint64_t rwf_avoid_pagecache_attempts;
+    uint64_t rwf_avoid_pagecache_fail;
 };
 
 struct kairo_stats_snapshot {
@@ -127,6 +137,14 @@ struct kairo_stats_snapshot {
     uint64_t rwf_prefetch_fail;
     uint64_t rwf_prefill_attempts;
     uint64_t rwf_prefill_fail;
+    uint64_t rwf_ephemeral_attempts;
+    uint64_t rwf_ephemeral_fail;
+    uint64_t rwf_recompute_attempts;
+    uint64_t rwf_recompute_fail;
+    uint64_t rwf_no_durability_attempts;
+    uint64_t rwf_no_durability_fail;
+    uint64_t rwf_avoid_pagecache_attempts;
+    uint64_t rwf_avoid_pagecache_fail;
 };
 
 struct kairo_worker_ctx {
@@ -229,6 +247,21 @@ static enum kairo_hint_mode parse_hint_mode(const char *value)
     exit(EXIT_FAILURE);
 }
 
+static enum kairo_semantic_mode parse_semantic_mode(const char *value)
+{
+    if (strcmp(value, "normal") == 0)
+        return KAIRO_SEMANTIC_NORMAL;
+    if (strcmp(value, "ephemeral") == 0)
+        return KAIRO_SEMANTIC_EPHEMERAL;
+    if (strcmp(value, "recomputable") == 0)
+        return KAIRO_SEMANTIC_RECOMPUTABLE;
+    if (strcmp(value, "ephemeral-recomputable") == 0)
+        return KAIRO_SEMANTIC_EPHEMERAL_RECOMPUTABLE;
+
+    fprintf(stderr, "invalid semantic-mode: %s\n", value);
+    exit(EXIT_FAILURE);
+}
+
 static void usage(const char *prog)
 {
     fprintf(stderr,
@@ -255,6 +288,8 @@ static void usage(const char *prog)
             "  --cluster-size-blocks <n> Blocks per cluster (clustered mode)\n"
             "  --fragment-size <B|K|M>   Fragment I/O into smaller chunks\n"
             "  --hint-mode <name>        ioprio|rwf|both (default: ioprio)\n"
+            "  --semantic-mode <name>    normal|ephemeral|recomputable|\n"
+            "                            ephemeral-recomputable\n"
             "  --random-read             Default mode\n"
             "  --sequential-read         Disable random read placement\n"
             "  --buffered                Disable O_DIRECT\n",
@@ -406,6 +441,8 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->cluster_size_blocks = 8;
     cfg->fragment_size_bytes = 0;
     cfg->hint_mode = KAIRO_HINT_MODE_IOPRIO;
+    cfg->semantic_mode = KAIRO_SEMANTIC_NORMAL;
+    cfg->evict_threads_explicit = false;
 }
 
 static void apply_mode_defaults(struct kairo_config *cfg)
@@ -477,6 +514,18 @@ static void apply_mode_defaults(struct kairo_config *cfg)
         cfg->prefill_region_pct = 25;
         break;
     case KAIRO_MODE_MIXED:
+    default:
+        break;
+    }
+
+    switch (cfg->semantic_mode) {
+    case KAIRO_SEMANTIC_EPHEMERAL:
+    case KAIRO_SEMANTIC_EPHEMERAL_RECOMPUTABLE:
+        if (!cfg->evict_threads_explicit && cfg->evict_threads == 0)
+            cfg->evict_threads = 1;
+        break;
+    case KAIRO_SEMANTIC_NORMAL:
+    case KAIRO_SEMANTIC_RECOMPUTABLE:
     default:
         break;
     }
@@ -613,23 +662,56 @@ static void record_rwf_attempt(struct kairo_stats *stats, enum kairo_worker_kind
     pthread_mutex_lock(&stats->lock);
     switch (kind) {
     case KAIRO_WORKER_DECODE:
-        stats->rwf_decode_attempts++;
         if (failed)
             stats->rwf_decode_fail++;
+        else
+            stats->rwf_decode_attempts++;
         break;
     case KAIRO_WORKER_PREFETCH:
-        stats->rwf_prefetch_attempts++;
         if (failed)
             stats->rwf_prefetch_fail++;
+        else
+            stats->rwf_prefetch_attempts++;
         break;
     case KAIRO_WORKER_WRITE:
-        stats->rwf_prefill_attempts++;
         if (failed)
             stats->rwf_prefill_fail++;
+        else
+            stats->rwf_prefill_attempts++;
         break;
     case KAIRO_WORKER_EVICT:
     default:
         break;
+    }
+    pthread_mutex_unlock(&stats->lock);
+}
+
+static void record_rwf_semantic_attempt(struct kairo_stats *stats, uint64_t semantic_flags, bool failed)
+{
+    pthread_mutex_lock(&stats->lock);
+    if (semantic_flags & KAIRO_RWF_EPHEMERAL) {
+        if (failed)
+            stats->rwf_ephemeral_fail++;
+        else
+            stats->rwf_ephemeral_attempts++;
+    }
+    if (semantic_flags & KAIRO_RWF_RECOMPUTE) {
+        if (failed)
+            stats->rwf_recompute_fail++;
+        else
+            stats->rwf_recompute_attempts++;
+    }
+    if (semantic_flags & KAIRO_RWF_NO_DURABILITY) {
+        if (failed)
+            stats->rwf_no_durability_fail++;
+        else
+            stats->rwf_no_durability_attempts++;
+    }
+    if (semantic_flags & KAIRO_RWF_AVOID_PAGECACHE) {
+        if (failed)
+            stats->rwf_avoid_pagecache_fail++;
+        else
+            stats->rwf_avoid_pagecache_attempts++;
     }
     pthread_mutex_unlock(&stats->lock);
 }
@@ -698,6 +780,14 @@ static void snapshot_stats(struct kairo_stats *stats, struct kairo_stats_snapsho
     snapshot->rwf_prefetch_fail = stats->rwf_prefetch_fail;
     snapshot->rwf_prefill_attempts = stats->rwf_prefill_attempts;
     snapshot->rwf_prefill_fail = stats->rwf_prefill_fail;
+    snapshot->rwf_ephemeral_attempts = stats->rwf_ephemeral_attempts;
+    snapshot->rwf_ephemeral_fail = stats->rwf_ephemeral_fail;
+    snapshot->rwf_recompute_attempts = stats->rwf_recompute_attempts;
+    snapshot->rwf_recompute_fail = stats->rwf_recompute_fail;
+    snapshot->rwf_no_durability_attempts = stats->rwf_no_durability_attempts;
+    snapshot->rwf_no_durability_fail = stats->rwf_no_durability_fail;
+    snapshot->rwf_avoid_pagecache_attempts = stats->rwf_avoid_pagecache_attempts;
+    snapshot->rwf_avoid_pagecache_fail = stats->rwf_avoid_pagecache_fail;
     pthread_mutex_unlock(&stats->lock);
 }
 
@@ -778,6 +868,31 @@ static uint64_t kairo_rwf_for_worker(enum kairo_worker_kind kind)
     }
 }
 
+static uint64_t kairo_semantic_rwf_flags(const struct kairo_worker_ctx *ctx)
+{
+    switch (ctx->cfg->semantic_mode) {
+    case KAIRO_SEMANTIC_EPHEMERAL:
+        if (ctx->kind == KAIRO_WORKER_WRITE || ctx->kind == KAIRO_WORKER_EVICT)
+            return KAIRO_RWF_EPHEMERAL;
+        return 0;
+    case KAIRO_SEMANTIC_RECOMPUTABLE:
+        if (ctx->kind == KAIRO_WORKER_WRITE)
+            return KAIRO_RWF_RECOMPUTE | KAIRO_RWF_NO_DURABILITY;
+        return 0;
+    case KAIRO_SEMANTIC_EPHEMERAL_RECOMPUTABLE: {
+        uint64_t flags = KAIRO_RWF_AVOID_PAGECACHE;
+        if (ctx->kind == KAIRO_WORKER_WRITE)
+            flags |= KAIRO_RWF_EPHEMERAL | KAIRO_RWF_RECOMPUTE | KAIRO_RWF_NO_DURABILITY;
+        if (ctx->kind == KAIRO_WORKER_EVICT)
+            flags |= KAIRO_RWF_EPHEMERAL | KAIRO_RWF_EVICT_CLEANUP;
+        return flags;
+    }
+    case KAIRO_SEMANTIC_NORMAL:
+    default:
+        return 0;
+    }
+}
+
 static bool kairo_should_fallback_errno(int err)
 {
     return err == EINVAL || err == EOPNOTSUPP || err == ENOSYS;
@@ -790,12 +905,14 @@ static ssize_t kairo_pread_with_hints(struct kairo_worker_ctx *ctx, void *buffer
         .iov_base = buffer,
         .iov_len = io_size,
     };
-    const uint64_t rwf = kairo_rwf_for_worker(ctx->kind);
+    const uint64_t rwf = kairo_rwf_for_worker(ctx->kind) | kairo_semantic_rwf_flags(ctx);
+    const uint64_t semantic_flags = kairo_semantic_rwf_flags(ctx);
 
     if (!kairo_hint_mode_uses_rwf(ctx->cfg->hint_mode) || rwf == 0)
         return pread(ctx->fd, buffer, io_size, file_offset);
 
     record_rwf_attempt(ctx->stats, ctx->kind, false);
+    record_rwf_semantic_attempt(ctx->stats, semantic_flags, false);
     errno = 0;
     ssize_t rc = syscall(SYS_preadv2, ctx->fd, &iov, 1, (long)file_offset, (long)(file_offset >> 32), rwf);
     if (rc >= 0)
@@ -803,6 +920,7 @@ static ssize_t kairo_pread_with_hints(struct kairo_worker_ctx *ctx, void *buffer
 
     if (kairo_should_fallback_errno(errno)) {
         record_rwf_attempt(ctx->stats, ctx->kind, true);
+        record_rwf_semantic_attempt(ctx->stats, semantic_flags, true);
         return pread(ctx->fd, buffer, io_size, file_offset);
     }
 
@@ -816,12 +934,14 @@ static ssize_t kairo_pwrite_with_hints(struct kairo_worker_ctx *ctx, void *buffe
         .iov_base = buffer,
         .iov_len = io_size,
     };
-    const uint64_t rwf = kairo_rwf_for_worker(ctx->kind);
+    const uint64_t rwf = kairo_rwf_for_worker(ctx->kind) | kairo_semantic_rwf_flags(ctx);
+    const uint64_t semantic_flags = kairo_semantic_rwf_flags(ctx);
 
     if (!kairo_hint_mode_uses_rwf(ctx->cfg->hint_mode) || rwf == 0)
         return pwrite(ctx->fd, buffer, io_size, file_offset);
 
     record_rwf_attempt(ctx->stats, ctx->kind, false);
+    record_rwf_semantic_attempt(ctx->stats, semantic_flags, false);
     errno = 0;
     ssize_t rc = syscall(SYS_pwritev2, ctx->fd, &iov, 1, (long)file_offset, (long)(file_offset >> 32), rwf);
     if (rc >= 0)
@@ -829,6 +949,7 @@ static ssize_t kairo_pwrite_with_hints(struct kairo_worker_ctx *ctx, void *buffe
 
     if (kairo_should_fallback_errno(errno)) {
         record_rwf_attempt(ctx->stats, ctx->kind, true);
+        record_rwf_semantic_attempt(ctx->stats, semantic_flags, true);
         return pwrite(ctx->fd, buffer, io_size, file_offset);
     }
 
@@ -996,6 +1117,7 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("file=%s\n", cfg->file_path);
     printf("mode=%s\n", kairo_mode_name(cfg->mode));
     printf("hint_mode=%s\n", kairo_hint_mode_name(cfg->hint_mode));
+    printf("semantic_mode=%s\n", kairo_semantic_mode_name(cfg->semantic_mode));
     printf("access_pattern=%s\n", kairo_access_pattern_name(cfg->access_pattern));
     printf("stride_blocks=%u\n", cfg->stride_blocks);
     printf("cluster_size_blocks=%u\n", cfg->cluster_size_blocks);
@@ -1032,6 +1154,14 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("rwf_prefetch_fail=%" PRIu64 "\n", snapshot.rwf_prefetch_fail);
     printf("rwf_prefill_attempts=%" PRIu64 "\n", snapshot.rwf_prefill_attempts);
     printf("rwf_prefill_fail=%" PRIu64 "\n", snapshot.rwf_prefill_fail);
+    printf("rwf_ephemeral_attempts=%" PRIu64 "\n", snapshot.rwf_ephemeral_attempts);
+    printf("rwf_ephemeral_fail=%" PRIu64 "\n", snapshot.rwf_ephemeral_fail);
+    printf("rwf_recompute_attempts=%" PRIu64 "\n", snapshot.rwf_recompute_attempts);
+    printf("rwf_recompute_fail=%" PRIu64 "\n", snapshot.rwf_recompute_fail);
+    printf("rwf_no_durability_attempts=%" PRIu64 "\n", snapshot.rwf_no_durability_attempts);
+    printf("rwf_no_durability_fail=%" PRIu64 "\n", snapshot.rwf_no_durability_fail);
+    printf("rwf_avoid_pagecache_attempts=%" PRIu64 "\n", snapshot.rwf_avoid_pagecache_attempts);
+    printf("rwf_avoid_pagecache_fail=%" PRIu64 "\n", snapshot.rwf_avoid_pagecache_fail);
     puts("todo=replace pthread pread/pwrite path with io_uring worker path");
 
     free(sorted);
@@ -1076,6 +1206,7 @@ int main(int argc, char **argv)
         {"stride-blocks", required_argument, NULL, 4},
         {"cluster-size-blocks", required_argument, NULL, 5},
         {"fragment-size", required_argument, NULL, 6},
+        {"semantic-mode", required_argument, NULL, 8},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -1109,6 +1240,7 @@ int main(int argc, char **argv)
             break;
         case 'e':
             cfg.evict_threads = (unsigned int)parse_size(optarg, "evict-threads");
+            cfg.evict_threads_explicit = true;
             break;
         case 't':
             cfg.runtime_seconds = (unsigned int)parse_size(optarg, "runtime");
@@ -1134,6 +1266,9 @@ int main(int argc, char **argv)
             break;
         case 7:
             cfg.hint_mode = parse_hint_mode(optarg);
+            break;
+        case 8:
+            cfg.semantic_mode = parse_semantic_mode(optarg);
             break;
         case 4:
             cfg.stride_blocks = (unsigned int)parse_size(optarg, "stride-blocks");

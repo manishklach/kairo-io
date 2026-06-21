@@ -66,9 +66,13 @@
 - Patches involved: `0006`
 - What should compile:
   - ephemeral and recomputable flag scaffolding
+  - local semantic flag helpers on `kiocb`, `bio`, and `request` metadata
 - What should be measurable:
-  - qualitative page-cache and cleanup behavior during local experiments
+  - benchmark `--semantic-mode normal|ephemeral|recomputable|ephemeral-recomputable`
+  - `rwf_ephemeral_*`, `rwf_recompute_*`, `rwf_no_durability_*`, `rwf_avoid_pagecache_*`
+  - semantic counter deltas such as `kairo_ephemeral_requests`
 - What is still RFC-only:
+  - scaffolded / local RFC, not compile-validated
   - exact durability and cache-management semantics
 
 ## Stage 6
