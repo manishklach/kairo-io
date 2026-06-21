@@ -20,14 +20,14 @@ Only decode-read priority is mandatory in the first patch.
 
 ## Dispatch Policy
 
-When `kvio_enable` is true:
+When `kairo_enable` is true:
 
 - scan the RT-priority request bucket for decode-critical reads
 - dispatch decode reads before the normal priority-order walk
 - stop forcing decode dispatch after a small decode budget is reached
 - return to existing `mq-deadline` dispatch behavior afterward
 
-When `kvio_enable` is false:
+When `kairo_enable` is false:
 
 - preserve normal `mq-deadline` behavior
 
@@ -39,9 +39,9 @@ The patch does not replace the scheduler’s existing write-starvation logic. It
 
 The first patch keeps minimal internal counters only:
 
-- `kvio_decode_dispatches`
-- `kvio_normal_dispatches`
-- `kvio_write_starvation_escapes`
+- `kairo_decode_dispatches`
+- `kairo_normal_dispatches`
+- `kairo_write_starvation_escapes`
 
 These counters are documented for local inspection and future export, but the first patch does not require a full sysfs or debugfs plumbing pass.
 

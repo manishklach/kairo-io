@@ -1,6 +1,6 @@
 # API Hints
 
-KV-IO is not defining a permanent UAPI yet. The current repository only captures experimental hint concepts.
+Kairo is not defining a permanent UAPI yet. The current repository only captures experimental hint concepts.
 
 Useful hint channels include:
 
@@ -14,10 +14,10 @@ Useful hint channels include:
 Local classification mapping:
 
 ```text
-RT prio 0 read  -> KVIO_DECODE_READ
-RT prio 1 read  -> KVIO_PREFETCH_READ
-BE prio 7 write -> KVIO_PREFILL_WRITE
-discard         -> KVIO_EVICT
+RT prio 0 read  -> KAIRO_DECODE_READ
+RT prio 1 read  -> KAIRO_PREFETCH_READ
+BE prio 7 write -> KAIRO_PREFILL_WRITE
+discard         -> KAIRO_EVICT
 ```
 
 Future hint plumbing may include:

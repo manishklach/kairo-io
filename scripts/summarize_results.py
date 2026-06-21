@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize kvio-bench logs into a compact comparison table."""
+"""Summarize kairo_bench logs into a compact comparison table."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 
 FIELDS = [
-    "total_decode_reads",
-    "total_prefetch_reads",
-    "total_writes",
-    "p95_decode_latency_us",
-    "p99_decode_latency_us",
-    "read_throughput_mib_s",
-    "write_throughput_mib_s",
+    "decode_total_reads",
+    "prefetch_total_reads",
+    "write_total_ops",
+    "decode_p95_us",
+    "decode_p99_us",
+    "decode_read_MBps",
+    "write_MBps",
 ]
 
 

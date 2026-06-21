@@ -1,6 +1,6 @@
 # Placement And Lifetime Hints
 
-KV-IO reserves architectural space for placement and lifetime metadata even though the first patch series does not fully implement it.
+Kairo reserves architectural space for placement and lifetime metadata even though the first patch series does not fully implement it.
 
 Candidate hint fields:
 

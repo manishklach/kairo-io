@@ -1,112 +1,44 @@
-# KV-IO Architecture
+# Kairo Architecture
 
-## 1. Motivation
+Kairo is an internal RFC/POC exploring AI KV-cache-aware Linux storage on generic NVMe SSDs.
 
-KV-IO explores whether Linux can schedule AI inference-like storage traffic more intelligently on generic NVMe SSDs. The project starts from a simple observation: decode-critical reads should not be treated the same way as background cache-construction writes.
+## Motivation
 
-## 2. AI Inference Storage Pressure
+Decode-critical reads and background prefill writes should not be treated as equivalent traffic when the storage path becomes part of the inference critical path.
 
-Long-context and agentic inference increase storage pressure when KV-cache state outgrows fast memory tiers. That pressure shows up as repeated read access to previously written inference state and creates sensitivity to tail latency.
+## Current Focus
 
-## 3. KV-Cache Workload Model
+- decode-read prioritization in `mq-deadline`
+- temporary `ioprio`-based request classification
+- benchmark-driven validation using a pthread benchmark scaffold
 
-The target workload is:
-
-- large-block
-- read-dominant during decode
-- append-written during prefill
-- mostly immutable after write
-- session and model scoped
-- often recomputable
-
-## 4. Prefill Vs Decode I/O Behavior
-
-Prefill is write-oriented cache creation. Decode is read-dominant and latency-sensitive. Prefetch sits between them: useful soon, but not yet blocking token generation.
-
-## 5. Why Ordinary Linux Block Scheduling Is Insufficient
-
-Generic block scheduling optimizes broadly for fairness and mixed workload behavior. It does not explicitly represent:
-
-- decode urgency
-- prefetch timing
-- background prefill demotion
-- ephemeral/recomputable semantics
-
-## 6. KV-IO Architecture Overview
-
-KV-IO spans:
-
-- user-space workload generation and hinting
-- block-layer request classification
-- `mq-deadline` priority behavior
-- optional backend mappings
-
-## 7. I/O Classes
+## Architecture Overview
 
 ```text
-KV_DECODE_READ      highest priority
-KV_PREFETCH_READ    high priority, deadline-aware
-KV_PREFILL_WRITE    lower priority background write
-KV_EVICT            lowest priority discard/cleanup
-NORMAL_IO           ordinary traffic
+decode readers -> ioprio hints -> block request classification -> mq-deadline
+prefetch reads -> ioprio hints -> priority lanes             -> generic NVMe
+prefill writes -> ioprio hints -> demotion logic             -> SSD queues
 ```
 
-## 8. `io_uring` / `O_DIRECT` User-Space Hint Path
+## I/O Classes
 
-The initial benchmark uses `pread()` and `pwrite()` for simplicity, but the architectural path includes:
+```text
+KAIRO_DECODE_READ
+KAIRO_PREFETCH_READ
+KAIRO_PREFILL_WRITE
+KAIRO_EVICT
+NORMAL_IO
+```
 
-- `io_uring`
-- `O_DIRECT`
-- registered buffers
-- user-space classification and placement hints
+## Local Classification
 
-## 9. Block Request Classification
+```text
+RT prio 0 read  -> KAIRO_DECODE_READ
+RT prio 1 read  -> KAIRO_PREFETCH_READ
+BE prio 7 write -> KAIRO_PREFILL_WRITE
+discard         -> KAIRO_EVICT
+```
 
-The internal model uses experimental classification concepts and current local mapping through `ioprio`.
+## Current Validation Goal
 
-## 10. `mq-deadline` Priority Lanes
-
-The first patch adds a decode-priority fast path that checks for eligible decode reads before normal dispatch.
-
-## 11. Large-Block Coalescing
-
-Large KV-cache reads should be eligible for merge-friendly handling when that improves throughput without harming decode latency.
-
-## 12. Prefetch And Deadline-Aware Scheduling
-
-Prefetch traffic should remain above ordinary background work but below decode-critical reads.
-
-## 13. Ephemeral/Recomputable Cache Semantics
-
-KV cache often does not require the same durability assumptions as database or filesystem metadata traffic.
-
-## 14. Model/Session/Lifetime Placement Hints
-
-Longer-term architecture includes:
-
-- `model_id`
-- `session_id`
-- `placement_id`
-- lifetime class
-- recomputable flag
-
-## 15. Optional NVMe/ZNS/Streams/FDP Backend Mapping
-
-Backend-specific mapping remains optional and should never be a project dependency.
-
-## 16. Benchmarking And Validation
-
-Validation is benchmark-driven and focuses on p50, p95, and p99 latency plus throughput and interference behavior.
-
-## 17. Risks And Limits
-
-- scheduler changes may not dominate device behavior
-- `ioprio` is only a temporary signal
-- user-space benchmarks only approximate real inference pipelines
-
-## 18. Future Work
-
-- true `io_uring` worker paths
-- explicit prefetch scheduling
-- merge heuristics for KV reads
-- placement and lifetime plumbing
+Reduce `decode_p99_us` under mixed prefill-write pressure without collapsing write progress.

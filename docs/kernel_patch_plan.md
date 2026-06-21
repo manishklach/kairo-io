@@ -1,6 +1,6 @@
 # Kernel Patch Plan
 
-KV-IO uses a local RFC/POC patch series shape rather than a submission-oriented kernel series.
+Kairo uses a local RFC/POC patch series shape rather than a submission-oriented kernel series.
 
 ## Likely Files
 

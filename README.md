@@ -1,39 +1,31 @@
 # Kairo
 
-**Kernel AI Runtime I/O for KV-cache-aware Linux storage**
-
-**Status:** Internal RFC/POC  
-**Scope:** Linux block-layer, io_uring, NVMe, and benchmark-driven storage scheduling research  
-**Important:** This project is not intended for LKML submission at this stage.
+Kernel AI Runtime I/O for KV-cache-aware Linux storage
 
 Kairo is an internal Linux-kernel RFC/POC exploring AI KV-cache-aware block I/O for generic NVMe SSDs.
 
-KV cache is neither ordinary file data nor ordinary memory. It is large-block, read-dominant, latency-sensitive, session-scoped, and often recomputable inference state. Kairo explores whether Linux can schedule, classify, prioritize, and place this traffic more intelligently on generic NVMe SSDs.
+This project is not intended for LKML submission at this stage.
 
-## Problem Statement
+## Scope
 
-Modern long-context and agentic AI inference creates a storage workload that Linux does not currently treat as first-class. Decode reads are latency-critical. Prefetch reads are important but not immediately blocking. Prefill writes are background relative to decode. Eviction and discard are lowest priority. When this inference state spills onto SSD-backed tiers, decode-critical reads can compete with background writes, cleanup traffic, filesystem activity, and unrelated storage work.
+Kairo explores whether Linux block-layer changes can improve generic NVMe SSD behavior for AI inference-like KV-cache workloads. The current proof point is decode-read prioritization under mixed read and write pressure, but the architecture remains broader than a single scheduler tweak.
 
-Kairo asks a direct systems question:
+## Current Status
 
-> Can Linux block-layer changes reduce p99 decode-read latency and improve mixed prefill/decode behavior for AI inference-like KV-cache workloads on generic NVMe SSDs?
+- internal RFC/POC
+- experimental kernel path
+- benchmark-driven validation
+- local patch scaffolds targeting `mq-deadline`
 
-## Why AI KV-Cache I/O Is Different
+## Problem
 
-AI KV-cache traffic has a distinctive shape:
+AI KV-cache traffic behaves differently from ordinary storage I/O:
 
-```text
-large-block reads
-read-dominant decode phase
-append-heavy prefill writes
-deadline-aware prefetch
-session/model scoping
-immutable-after-write cache objects
-large-chunk eviction
-recomputable inference state
-```
-
-Traditional Linux block scheduling does not explicitly recognize that combination of urgency, mutability, reuse, and recomputability.
+- decode reads are latency-critical
+- prefetch reads are important but less urgent
+- prefill writes are background relative to decode
+- eviction and discard are lowest priority
+- KV cache is large-block, read-dominant, session scoped, and often recomputable
 
 ## Architecture
 
@@ -49,95 +41,67 @@ Traditional Linux block scheduling does not explicitly recognize that combinatio
 | - io_uring                                              |
 | - O_DIRECT                                              |
 | - registered buffers                                    |
-| - ioprio / placement / lifetime hints                   |
+| - ioprio / model / session / lifetime hints             |
 +---------------------------------------------------------+
 | Kairo Block Layer                                       |
 | - request classification                                |
-| - decode-critical priority lane                         |
+| - decode-critical read priority                         |
 | - prefetch-aware scheduling                             |
+| - prefill-write demotion                                |
 | - large-block coalescing                                |
-| - ephemeral/recomputable semantics                      |
-| - model/session/lifetime propagation                    |
 +---------------------------------------------------------+
 | Generic NVMe Backend                                    |
 | - mq-deadline extensions                                |
 | - blk-mq metadata                                       |
 | - optional ZNS / Streams / FDP mapping                  |
-| - fallback to generic behavior                          |
 +---------------------------------------------------------+
 ```
 
-## Full Architecture Scope
+## Current Benchmark Strategy
 
-Kairo is intentionally broader than a single scheduler tweak. The repository explores:
+The current benchmark is [bench/kairo_bench.c](bench/kairo_bench.c). It uses:
 
-- KV-cache I/O classification
-- `mq-deadline` decode-critical read priority
-- prefill/background write demotion
-- prefetch-aware scheduling
-- large-block I/O coalescing
-- `io_uring` and `O_DIRECT` benchmark paths
-- model/session/lifetime placement hints
-- ephemeral/recomputable cache semantics
-- optional ZNS, NVMe Streams, and FDP backend mapping
-- benchmark-driven validation
+- pthread workers
+- `pread()` and `pwrite()`
+- `O_DIRECT` when available
+- aligned buffers via `posix_memalign()`
+- per-thread `ioprio` classification
 
-## Initial Kernel Patch Strategy
-
-The first working patch starts in `mq-deadline` and uses existing `ioprio` metadata as a temporary local classification mechanism:
+Temporary worker mapping:
 
 ```text
-RT prio 0 read  -> KAIO_DECODE_READ
-RT prio 1 read  -> KAIO_PREFETCH_READ
-BE prio 7 write -> KAIO_PREFILL_WRITE
-discard         -> KAIO_EVICT
+RT prio 0 read  -> KAIRO_DECODE_READ
+RT prio 1 read  -> KAIRO_PREFETCH_READ
+BE prio 7 write -> KAIRO_PREFILL_WRITE
+discard         -> KAIRO_EVICT
 ```
 
-This is an internal RFC/POC mechanism only. It is not a permanent UAPI proposal.
+## Current Kernel Patch Path
 
-Initial patch artifacts:
+Primary patch scaffold:
 
-- [`kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch`](kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch)
-- [`kernel/patches/0002-rfc-kairo-block-request-classification.patch`](kernel/patches/0002-rfc-kairo-block-request-classification.patch)
-- [`kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch`](kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch)
+- [kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch](kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch)
 
-## Benchmark Strategy
+Supporting scaffolds:
 
-The primary benchmark path is [`bench/kairo_bench.c`](bench/kairo_bench.c), a compilable pthreads benchmark that models:
+- [kernel/patches/0002-rfc-kairo-block-request-classification.patch](kernel/patches/0002-rfc-kairo-block-request-classification.patch)
+- [kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch](kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch)
 
-- decode reader threads
-- prefetch reader threads
-- prefill writer threads
-- large-block reads and writes
-- direct I/O where available
-- per-thread `ioprio` assignment
-
-`fio` profiles in [`bench/fio`](bench/fio) provide quick workload variants for decode-heavy, mixed interference, multi-model, and eviction-pressure scenarios.
-
-## Success Metrics
+## Success Metric
 
 Primary metric:
 
-- p99 decode-read latency under mixed prefill-write pressure
+- `decode_p99_us` under mixed prefill-write pressure
 
 Secondary metrics:
 
-- p95 decode-read latency
-- average decode-read latency
-- write throughput
-- aggregate throughput
+- `decode_p95_us`
+- `decode_avg_us`
+- `decode_read_MBps`
+- `write_MBps`
 - starvation behavior
-- multi-model interference
 
-## Non-Goals
-
-- vendor-specific SSD, GPU, DPU, or inference dependencies
-- permanent UAPI design at this stage
-- production-readiness claims
-- guaranteed speedup claims
-- LKML submission at this stage
-
-## Build Benchmark
+## Build
 
 ```bash
 gcc -O2 -Wall -pthread -Iinclude -o kairo_bench bench/kairo_bench.c
@@ -164,17 +128,10 @@ Or:
 
 ## Repository Layout
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/aggressive_poc_plan.md`](docs/aggressive_poc_plan.md)
-- [`docs/kernel_patch_plan.md`](docs/kernel_patch_plan.md)
-- [`docs/benchmark_plan.md`](docs/benchmark_plan.md)
-- [`docs/api_hints.md`](docs/api_hints.md)
-- [`docs/storage_semantics.md`](docs/storage_semantics.md)
-- [`docs/placement_lifetime_hints.md`](docs/placement_lifetime_hints.md)
-- [`include/kairo_hints.h`](include/kairo_hints.h)
-- [`kernel/patches/README.md`](kernel/patches/README.md)
-- [`bench/README.md`](bench/README.md)
-
-## Current Project Description
-
-**Kairo is an internal Linux-kernel RFC/POC for AI KV-cache-aware block I/O, prioritizing decode-critical reads and shaping generic NVMe SSD traffic for inference-like workloads.**
+- [docs/architecture.md](docs/architecture.md)
+- [docs/aggressive_poc_plan.md](docs/aggressive_poc_plan.md)
+- [docs/kernel_patch_plan.md](docs/kernel_patch_plan.md)
+- [docs/benchmark_plan.md](docs/benchmark_plan.md)
+- [include/kairo_hints.h](include/kairo_hints.h)
+- [bench/README.md](bench/README.md)
+- [scripts/build_bench.sh](scripts/build_bench.sh)

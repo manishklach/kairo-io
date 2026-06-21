@@ -1,43 +1,56 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Kairo RFC/POC <local@kairo.invalid>
-Date: Sun, 21 Jun 2026 00:00:00 +0000
-Subject: [RFC/POC] mq-deadline: add experimental Kairo decode-read priority
+From 9e4d9cf9d8300000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sat, 21 Jun 2026 12:00:00 -0700
+Subject: [RFC/POC PATCH] mq-deadline: prioritize Kairo decode reads
 
-This local RFC/POC patch sketches the first Kairo scheduler experiment:
-classify decode-critical KV-cache reads using existing ioprio metadata and
-prefer them in mq-deadline dispatch before lower-priority background traffic.
+Local RFC/POC patch scaffold for Kairo.
 
-This is not intended for LKML submission. The ioprio mapping is an internal
-prototype signal, not a permanent UAPI.
+This patch is written as a plausible local experiment against the Linux 6.8.x
+`block/mq-deadline.c` layout. It is meant to be adapted against the exact
+kernel tree under test before build and boot validation.
 
-Temporary classification:
+Current local classification:
+- RT class, prio 0, read  => KAIRO_DECODE_READ
+- RT class, prio 1, read  => KAIRO_PREFETCH_READ
+- BE class, prio 7, write => KAIRO_PREFILL_WRITE
 
-  IOPRIO_CLASS_RT, prio 0, READ  -> KAIRO_DECODE_READ
-  IOPRIO_CLASS_RT, prio 1, READ  -> KAIRO_PREFETCH_READ
-  IOPRIO_CLASS_BE, prio 7, WRITE -> KAIRO_PREFILL_WRITE
+Key intent:
+- add a simple `kairo_enable` toggle
+- prefer decode-critical reads before normal mq-deadline dispatch
+- bound decode preference with a budget so writes are not totally starved
+- preserve normal mq-deadline behavior when disabled
 
-The exact insertion points may need adjustment for the target kernel version.
----
- block/mq-deadline.c | 64 ++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 64 insertions(+)
+Known adaptation points:
+- exact insertion point may differ by kernel revision
+- helper names such as `req_get_ioprio()` should be checked against the local tree
+- internal counters still need real export plumbing if debug visibility is required
 
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
-index 000000000000..111111111111 100644
+index 111111111111..222222222222 100644
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -1,3 +1,67 @@
-+/*
-+ * Kairo RFC/POC notes:
-+ *
-+ * This patch is intentionally scaffold-level. It documents the local
-+ * scheduler logic to be wired into mq-deadline on the target kernel tree.
-+ * The final placement depends on the exact Linux version being patched.
-+ */
-+
-+#include <linux/ioprio.h>
-+
+@@ -23,6 +23,11 @@
+  static const int writes_starved = 2;
+  static const int fifo_batch = 16;
 +static bool kairo_enable = true;
++module_param_named(kairo_enable, kairo_enable, bool, 0644);
 +static unsigned int kairo_decode_budget = 32;
++module_param_named(kairo_decode_budget, kairo_decode_budget, uint, 0644);
++
++
+@@ -95,6 +100,11 @@ struct deadline_data {
+ 	spinlock_t lock;
+ 	spinlock_t zone_lock;
++
++	u64 kairo_decode_dispatches;
++	u64 kairo_prefetch_dispatches;
++	u64 kairo_normal_dispatches;
++	u64 kairo_starvation_escapes;
++	unsigned int kairo_decode_budget_used;
+  };
+@@ -126,6 +136,35 @@ static u8 dd_rq_ioclass(struct request *rq)
+ 	return IOPRIO_PRIO_CLASS(req_get_ioprio(rq));
+ }
 +
 +static inline bool dd_kairo_is_decode_read(struct request *rq)
 +{
@@ -65,29 +78,83 @@ index 000000000000..111111111111 100644
 +	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
 +	       IOPRIO_PRIO_DATA(ioprio) == 7;
 +}
+@@ -564,6 +603,57 @@ static struct request *dd_dispatch_prio_aged_requests(struct deadline_data *dd,
+ 	return NULL;
+ }
 +
-+/*
-+ * Intended dispatch policy:
-+ *
-+ * 1. If Kairo mode is disabled, preserve existing mq-deadline behavior.
-+ * 2. If a decode-critical read exists and decode budget remains, dispatch it.
-+ * 3. If prefetch reads are approaching deadline, prefer them after decode.
-+ * 4. Fall back to existing mq-deadline read/write logic.
-+ * 5. Preserve write progress with starvation/deadline escape behavior.
-+ *
-+ * Pseudocode insertion point inside the mq-deadline dispatch function:
-+ *
-+ *   if (kairo_enable) {
-+ *       rq = dd_kairo_next_decode_read(dd);
-+ *       if (rq && dd->kairo_decode_dispatches < kairo_decode_budget)
-+ *           return dd_dispatch_request(q, rq);
-+ *   }
-+ *
-+ * TODO:
-+ * - Add a real decode-read lane or tree scan based on target mq-deadline code.
-+ * - Add starvation accounting.
-+ * - Add sysfs/debugfs stats.
-+ * - Reset decode budget per dispatch epoch.
-+ */
++static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd,
++							unsigned long latest_start)
++{
++	struct dd_per_prio *per_prio = &dd->per_prio[DD_RT_PRIO];
++	struct request *rq;
 +
- /* existing mq-deadline code continues below in the target kernel tree */
++	lockdep_assert_held(&dd->lock);
++
++	if (!kairo_enable || dd->kairo_decode_budget_used >= kairo_decode_budget)
++		return NULL;
++
++	list_for_each_entry(rq, &per_prio->dispatch, queuelist) {
++		if (!dd_kairo_is_decode_read(rq))
++			continue;
++		if (started_after(dd, rq, latest_start))
++			return NULL;
++		list_del_init(&rq->queuelist);
++		goto done;
++	}
++
++	list_for_each_entry(rq, &per_prio->fifo_list[DD_READ], queuelist) {
++		if (!dd_kairo_is_decode_read(rq))
++			continue;
++		if (started_after(dd, rq, latest_start))
++			return NULL;
++		dd->last_dir = DD_READ;
++		dd->batching = 0;
++		dd->batching++;
++		deadline_move_request(dd, per_prio, rq);
++		goto done;
++	}
++
++	return NULL;
++
++done:
++	dd->kairo_decode_budget_used++;
++	dd->kairo_decode_dispatches++;
++	per_prio->latest_pos[DD_READ] = blk_rq_pos(rq);
++	per_prio->stats.dispatched++;
++	blk_req_zone_write_lock(rq);
++	rq->rq_flags |= RQF_STARTED;
++	return rq;
++}
+@@ -599,6 +689,14 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 	struct request *rq;
+ 	enum dd_prio prio;
++
++	if (kairo_enable) {
++		spin_lock(&dd->lock);
++		rq = dd_kairo_dispatch_decode_request(dd, now);
++		spin_unlock(&dd->lock);
++		if (rq)
++			return rq;
++	}
+ 
+ 	spin_lock(&dd->lock);
+ 	rq = dd_dispatch_prio_aged_requests(dd, now);
+@@ -612,8 +710,18 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
+ 		rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
+ 		if (rq || dd_queued(dd, prio))
++			break;
++	}
++
++	if (kairo_enable) {
++		if (rq && !dd_kairo_is_decode_read(rq)) {
++			dd->kairo_decode_budget_used = 0;
++			dd->kairo_normal_dispatches++;
++			if (rq_data_dir(rq) == WRITE && dd_queued(dd, DD_RT_PRIO))
++				dd->kairo_starvation_escapes++;
++		} else if (!rq) {
++			dd->kairo_decode_budget_used = 0;
++		}
+ 	}
+ 
+ 	spin_unlock(&dd->lock);

@@ -1,8 +1,8 @@
-# KV-IO Benchmark Design
+# Kairo Benchmark Design
 
 ## Goal
 
-`kvio-bench` is intended to model the storage-facing behavior of AI inference KV-cache traffic without requiring a real GPU or model runtime. The benchmark focuses on how decode-critical reads interact with background cache creation and other competing I/O.
+`kairo_bench` is intended to model the storage-facing behavior of AI inference KV-cache traffic without requiring a real GPU or model runtime. The benchmark focuses on how decode-critical reads interact with background cache creation and other competing I/O.
 
 ## Workload Model
 
@@ -27,9 +27,9 @@ The benchmark does not attempt to execute attention kernels or generate tokens. 
 - eviction can be approximated by discard or overwrite activity on stale regions
 - separate files or offset ranges stand in for independent sessions or models
 
-This isolates the Linux storage path from GPU and model variability while preserving the key I/O relationships that KV-IO cares about.
+This isolates the Linux storage path from GPU and model variability while preserving the key I/O relationships that Kairo cares about.
 
-## `kvio-bench` Design
+## `kairo_bench` Design
 
 The baseline benchmark is a compilable C program that:
 
@@ -104,9 +104,9 @@ Useful parameters to sweep:
 
 The repository includes:
 
-- `kvio_decode_read.fio` for large-block read-dominant behavior
-- `kvio_mixed_prefill_decode.fio` for mixed read and write interference
-- `kvio_multimodel.fio` for multiple concurrent regions representing different models or sessions
+- `kairo_decode_read.fio` for large-block read-dominant behavior
+- `kairo_mixed_prefill_decode.fio` for mixed read and write interference
+- `kairo_multimodel.fio` for multiple concurrent regions representing different models or sessions
 
 These profiles should stay generic and file-backed so they can run on ordinary Linux systems.
 

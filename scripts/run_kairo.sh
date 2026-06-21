@@ -10,10 +10,10 @@ TARGET_FILE="$1"
 JOB="$2"
 JOB_NAME="$(basename "$JOB" .fio)"
 
-echo "[kv-io] kv-aware run"
+echo "[kairo] POC fio run"
 echo "file:   $TARGET_FILE"
 echo "job:    $JOB"
 echo "mode:   experimental placeholder"
 
 mkdir -p results/raw
-fio --filename="$TARGET_FILE" "$JOB" --output="results/raw/kvio-${JOB_NAME}.json" --output-format=json
+fio --filename="$TARGET_FILE" "$JOB" --output="results/raw/kairo-${JOB_NAME}.json" --output-format=json

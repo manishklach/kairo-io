@@ -3,10 +3,10 @@ CFLAGS ?= -O2 -Wall -Wextra -std=c11
 
 .PHONY: all clean
 
-all: bench/kvio_bench
+all: kairo_bench
 
-bench/kvio_bench: bench/kvio_bench.c
-	$(CC) $(CFLAGS) -o $@ $<
+kairo_bench: bench/kairo_bench.c include/kairo_hints.h
+	$(CC) $(CFLAGS) -Iinclude -o $@ bench/kairo_bench.c
 
 clean:
-	rm -f bench/kvio_bench
+	rm -f kairo_bench

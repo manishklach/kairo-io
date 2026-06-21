@@ -1,4 +1,4 @@
-# KV-IO API Notes
+# Kairo API Notes
 
 These notes are experimental and RFC-stage only. They are not a proposed final UAPI.
 

@@ -1,65 +1,24 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Kairo RFC/POC <local@kairo.invalid>
-Date: Sun, 21 Jun 2026 00:00:00 +0000
-Subject: [RFC/POC] block: sketch Kairo scheduler dispatch stats
+From 7777777777770000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sat, 21 Jun 2026 12:20:00 -0700
+Subject: [RFC/POC PATCH] block: scaffold Kairo scheduler stats
 
-This local RFC/POC patch sketches the counters needed to validate the Kairo
-scheduler hypothesis. The exact sysfs/debugfs integration should be adapted to
-the target kernel tree.
+Local RFC/POC patch scaffold.
 
-This is not intended for LKML submission.
----
- block/mq-deadline.c | 41 +++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 41 insertions(+)
+This patch reserves space for minimal Kairo observability counters:
+
+- kairo_decode_dispatches
+- kairo_prefetch_dispatches
+- kairo_prefill_dispatches
+- kairo_normal_dispatches
+- kairo_starvation_escapes
 
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
-index 111111111111..222222222222 100644
+index 888888888888..999999999999 100644
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -1,3 +1,44 @@
+@@
 +/*
-+ * Kairo RFC/POC scheduler stats.
-+ *
-+ * Intended counters for local validation:
-+ *
-+ *   kairo_decode_dispatches
-+ *   kairo_prefetch_dispatches
-+ *   kairo_prefill_dispatches
-+ *   kairo_normal_dispatches
-+ *   kairo_starvation_escapes
-+ *
-+ * These counters make the benchmark results explainable. If p99 decode-read
-+ * latency improves, we need to show that decode-critical reads were actually
-+ * dispatched through the Kairo lane and that writes were not completely
-+ * starved.
++ * TODO: expose Kairo counters through a simple local debugfs or sysfs path
++ * once the decode-priority path is validated against the target kernel tree.
 + */
-+
-+struct kairo_sched_stats {
-+	u64 decode_dispatches;
-+	u64 prefetch_dispatches;
-+	u64 prefill_dispatches;
-+	u64 normal_dispatches;
-+	u64 starvation_escapes;
-+};
-+
-+/*
-+ * TODO integration options:
-+ *
-+ * 1. Add these counters to struct deadline_data.
-+ * 2. Increment counters in dd_dispatch_request() or the local Kairo dispatch
-+ *    path based on kairo_classify_request(rq).
-+ * 3. Expose them through the scheduler sysfs attribute group under:
-+ *
-+ *      /sys/block/<dev>/queue/iosched/
-+ *
-+ *    Example files:
-+ *      kairo_decode_dispatches
-+ *      kairo_prefetch_dispatches
-+ *      kairo_prefill_dispatches
-+ *      kairo_normal_dispatches
-+ *      kairo_starvation_escapes
-+ *
-+ * 4. Keep this local and experimental until the benchmark demonstrates value.
-+ */
-+
- /* existing mq-deadline code continues below in the target kernel tree */

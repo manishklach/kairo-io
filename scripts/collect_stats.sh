@@ -35,5 +35,5 @@ if [[ -r "/sys/block/$DEV/queue/scheduler" ]]; then
 fi
 
 if [[ -d /sys/kernel/debug ]]; then
-  find /sys/kernel/debug -maxdepth 3 -iname '*kvio*' -type f -exec sh -c 'for f do cp "$f" "'"$OUT"'"/"$(basename "$f")"; done' sh {} + 2>/dev/null || true
+  find /sys/kernel/debug -maxdepth 3 -iname '*kairo*' -type f -exec sh -c 'for f do cp "$f" "'"$OUT"'"/"$(basename "$f")"; done' sh {} + 2>/dev/null || true
 fi

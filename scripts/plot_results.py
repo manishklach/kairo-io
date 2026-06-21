@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal plotting helper for KV-IO fio JSON outputs."""
+"""Minimal plotting helper for Kairo fio JSON outputs."""
 
 import json
 import sys

@@ -1,31 +1,24 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Kairo RFC/POC <local@kairo.invalid>
-Date: Sun, 21 Jun 2026 00:00:00 +0000
-Subject: [RFC/POC] block: add experimental Kairo request classification
+From 1111111111110000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sat, 21 Jun 2026 12:10:00 -0700
+Subject: [RFC/POC PATCH] block: scaffold Kairo request classification
 
-This local RFC/POC patch sketches a block-layer classification abstraction for
-AI KV-cache-like I/O. It is intentionally experimental and uses existing ioprio
-metadata for the first prototype.
+Local RFC/POC patch scaffold.
 
-This is not intended for LKML submission and does not define a permanent UAPI.
----
- include/linux/kairo.h | 48 ++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 48 insertions(+)
- create mode 100644 include/linux/kairo.h
+This patch sketches internal Kairo request classification helpers without
+introducing a permanent UAPI.
 
-diff --git a/include/linux/kairo.h b/include/linux/kairo.h
-new file mode 100644
-index 000000000000..111111111111
---- /dev/null
-+++ b/include/linux/kairo.h
-@@ -0,0 +1,48 @@
-+/* SPDX-License-Identifier: GPL-2.0 */
-+#ifndef _LINUX_KAIRO_H
-+#define _LINUX_KAIRO_H
-+
-+#include <linux/blk_types.h>
-+#include <linux/ioprio.h>
-+
+Current local signaling method:
+- RT prio 0 read  -> KAIRO_DECODE_READ
+- RT prio 1 read  -> KAIRO_PREFETCH_READ
+- BE prio 7 write -> KAIRO_PREFILL_WRITE
+- discard         -> KAIRO_EVICT
+
+diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
+index 333333333333..444444444444 100644
+--- a/include/linux/blk_types.h
++++ b/include/linux/blk_types.h
+@@
 +enum kairo_class {
 +	KAIRO_NONE = 0,
 +	KAIRO_DECODE_READ,
@@ -34,37 +27,12 @@ index 000000000000..111111111111
 +	KAIRO_EVICT,
 +};
 +
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index 555555555555..666666666666 100644
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@
 +/*
-+ * Experimental internal mapping:
-+ *
-+ *   RT prio 0 read  -> KAIRO_DECODE_READ
-+ *   RT prio 1 read  -> KAIRO_PREFETCH_READ
-+ *   BE prio 7 write -> KAIRO_PREFILL_WRITE
-+ *   discard         -> KAIRO_EVICT
++ * TODO: add local helper plumbing so mq-deadline and future schedulers can
++ * derive kairo_class from request ioprio without designing a new UAPI.
 + */
-+static inline enum kairo_class kairo_classify_request(struct request *rq)
-+{
-+	unsigned short ioprio = req_get_ioprio(rq);
-+
-+	if (rq_data_dir(rq) == READ &&
-+	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
-+	    IOPRIO_PRIO_DATA(ioprio) == 0)
-+		return KAIRO_DECODE_READ;
-+
-+	if (rq_data_dir(rq) == READ &&
-+	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_RT &&
-+	    IOPRIO_PRIO_DATA(ioprio) == 1)
-+		return KAIRO_PREFETCH_READ;
-+
-+	if (rq_data_dir(rq) == WRITE &&
-+	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
-+	    IOPRIO_PRIO_DATA(ioprio) == 7)
-+		return KAIRO_PREFILL_WRITE;
-+
-+	if (req_op(rq) == REQ_OP_DISCARD || req_op(rq) == REQ_OP_WRITE_ZEROES)
-+		return KAIRO_EVICT;
-+
-+	return KAIRO_NONE;
-+}
-+
-+#endif /* _LINUX_KAIRO_H */

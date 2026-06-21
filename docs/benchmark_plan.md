@@ -6,7 +6,7 @@ Compare the following:
 
 1. baseline Linux scheduler in its default mode
 2. baseline `mq-deadline`
-3. patched `mq-deadline` with KV-IO mode enabled
+3. patched `mq-deadline` with Kairo mode enabled
 
 Sweep across:
 
@@ -41,14 +41,14 @@ The benchmark should create mixed pressure:
 Baseline:
 
 ```bash
-./scripts/run_baseline.sh /mnt/nvme/kvio.test nvme0n1
+./scripts/run_baseline.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
 Patched:
 
 ```bash
 echo mq-deadline | sudo tee /sys/block/nvme0n1/queue/scheduler
-./scripts/run_kvio_poc.sh /mnt/nvme/kvio.test nvme0n1
+./scripts/run_kairo_poc.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
 ## What To Look For

@@ -1,33 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FILE=${1:-/mnt/nvme/kairo.test}
-DEV=${2:-nvme0n1}
-
-if [[ -e "/sys/block/${DEV}/queue/scheduler" ]]; then
-  echo "scheduler: $(cat /sys/block/${DEV}/queue/scheduler)"
-else
-  echo "warning: /sys/block/${DEV}/queue/scheduler not found" >&2
-fi
-
-BIN=${BIN:-./kairo_bench}
-if [[ ! -x "$BIN" ]]; then
-  echo "benchmark binary not found: $BIN" >&2
-  echo "run: ./scripts/build_bench.sh" >&2
+if [[ $# -lt 2 ]]; then
+  echo "usage: $0 <file-path> <block-device>" >&2
   exit 1
 fi
 
-mkdir -p results
-OUT="results/kairo_poc_$(date +%Y%m%d_%H%M%S).log"
+TARGET_FILE="$1"
+BLOCK_DEVICE="$2"
 
-"$BIN" \
-  --file "$FILE" \
-  --size ${KAIRO_SIZE:-8G} \
-  --block-size ${KAIRO_BLOCK:-1M} \
-  --decode-threads ${KAIRO_DECODE_THREADS:-4} \
-  --prefetch-threads ${KAIRO_PREFETCH_THREADS:-1} \
-  --write-threads ${KAIRO_WRITE_THREADS:-2} \
-  --runtime ${KAIRO_RUNTIME:-60} \
-  --random-read | tee "$OUT"
+echo "[kairo] selecting mq-deadline on $BLOCK_DEVICE"
+echo mq-deadline | sudo tee "/sys/block/$BLOCK_DEVICE/queue/scheduler" >/dev/null
+cat "/sys/block/$BLOCK_DEVICE/queue/scheduler" || true
 
-echo "wrote $OUT"
+./kairo_bench \
+  --file "$TARGET_FILE" \
+  --size 8G \
+  --block-size 1M \
+  --decode-threads 4 \
+  --prefetch-threads 1 \
+  --write-threads 2 \
+  --runtime 60 \
+  --random-read
