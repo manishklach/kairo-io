@@ -15,7 +15,9 @@ Kairo explores whether Linux block-layer changes can improve generic NVMe SSD be
 - internal RFC/POC
 - experimental kernel path
 - benchmark-driven validation
-- local multi-patch kernel RFC/POC series centered on `mq-deadline`, `blk-mq`, `io_uring`, and generic NVMe hooks
+- broad 9-patch RFC/POC architecture series retained under `kernel/patches/`
+- compile-targeted Linux 6.8.x foundation subset now isolated under `kernel/patches/foundation/`
+- local apply/build validation is focused on request classification, decode priority, prefetch deadlines, demotion accounting, and sysfs observability
 
 ## Problem
 
@@ -78,12 +80,18 @@ discard         -> KAIRO_EVICT
 
 ## Current Kernel Patch Path
 
-Primary patch scaffold:
+Compile-targeted foundation stack:
 
-- [kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch](kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch)
+- [kernel/patches/foundation/0001-kairo-request-classification.patch](kernel/patches/foundation/0001-kairo-request-classification.patch)
+- [kernel/patches/foundation/0002-kairo-mq-deadline-decode-priority.patch](kernel/patches/foundation/0002-kairo-mq-deadline-decode-priority.patch)
+- [kernel/patches/foundation/0003-kairo-prefetch-prefill-evict-policy.patch](kernel/patches/foundation/0003-kairo-prefetch-prefill-evict-policy.patch)
+- [kernel/patches/foundation/0004-kairo-mq-deadline-sysfs-counters.patch](kernel/patches/foundation/0004-kairo-mq-deadline-sysfs-counters.patch)
+
+Broader RFC/POC architecture patches:
 
 Supporting scaffolds:
 
+- [kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch](kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch)
 - [kernel/patches/0002-rfc-kairo-request-classification.patch](kernel/patches/0002-rfc-kairo-request-classification.patch)
 - [kernel/patches/0003-rfc-kairo-io-uring-hint-plumbing.patch](kernel/patches/0003-rfc-kairo-io-uring-hint-plumbing.patch)
 - [kernel/patches/0004-rfc-kairo-large-block-coalescing.patch](kernel/patches/0004-rfc-kairo-large-block-coalescing.patch)
@@ -141,6 +149,15 @@ that Kairo counters move under the AI inference-like KV-cache workload:
 ./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
+Use the Linux 6.8 foundation harness to apply, inspect, and build the
+compile-targeted kernel subset:
+
+```bash
+./kernel/integration/linux-6.8/apply_foundation_stack.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/validate_foundation_stack.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/build_foundation_objects.sh /path/to/linux-6.8.x
+```
+
 Use the A/B runner to compare baseline vs Kairo on the same generic NVMe SSD:
 
 ```bash
@@ -157,6 +174,7 @@ Track local validation status in:
 
 - [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
 - [docs/full_architecture_status.md](docs/full_architecture_status.md)
+- [docs/kernel_deep_dive_stage1_stage2.md](docs/kernel_deep_dive_stage1_stage2.md)
 - [docs/patch_series.md](docs/patch_series.md)
 
 ## Repository Layout

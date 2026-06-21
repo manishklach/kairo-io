@@ -5,6 +5,10 @@ block-layer behavior can improve generic NVMe SSD performance for inference-like
 workloads. The patch series under [kernel/patches](../kernel/patches) is a
 local research prototype, not an upstream submission plan.
 
+The repository now also carries a compile-targeted Linux 6.8.x subset under
+[kernel/patches/foundation](../kernel/patches/foundation). That subset is the
+local apply/build target for Stage 1 and Stage 2 validation.
+
 ## Series Overview
 
 | Patch | Area | Primary subsystem | Kairo concept |

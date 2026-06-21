@@ -1,6 +1,6 @@
 # Tested Kernel Matrix
 
-| Kernel version | Patch applies | Block build | Boot tested | Sysfs counters visible | Benchmark runs | Kairo decode counter increments | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Linux 6.8.12 | yes | yes | pending | pending | pending | pending | `0001` was locally validated earlier; the Stage 1 foundation stack (`0002` + `0001` + `0009`) is now compile-targeted for the next validation pass |
-| Linux 6.8.x (additional trees) | pending | pending | pending | pending | pending | pending | add rows as local validation expands |
+| Kernel version | Foundation patches apply | Foundation objects build | Boot tested | mq-deadline selected | Kairo sysfs visible | Decode counter increments | Prefetch counter increments | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Linux 6.8.12 | yes | yes | pending | pending | pending | pending | pending | `scripts/validate_patch_stack.sh`, `apply_foundation_stack.sh`, and `validate_foundation_stack.sh` passed on the local `linux-6.8.12-min` tree; the focused patched `block/mq-deadline.o` build passed. A separate exploratory combined `block/blk-mq.o block/mq-deadline.o` build still fails on a pre-existing local `blk-mq.o` `struct blk_plug` issue that also reproduces on the unpatched tree |
+| Linux 6.8.x (additional trees) | pending | pending | pending | pending | pending | pending | pending | add rows as local validation expands |

@@ -2,24 +2,25 @@
 
 | Architecture Area | Patch | Status | Notes |
 | --- | --- | --- | --- |
-| decode read priority | `0001` | implemented | `mq-deadline` decode-first dispatch path with sysfs knobs |
-| request classification | `0002` | implemented | internal enum, helpers, merge-instrumentation flags |
+| decode read priority | `0001` | implemented | compile-targeted for Linux 6.8.x in the foundation subset and retained in the broader RFC/POC series |
+| request classification | `0002` | implemented | compile-targeted for Linux 6.8.x in the foundation subset |
 | io_uring hints | `0003` | scaffolded | local RFC path from `RWF_KAIRO_*` into `kiocb`, then conceptual `bio/request` metadata |
 | large-block coalescing | `0004` | implemented | merge-bias helpers, per-request flags, blk-merge instrumentation hooks |
-| prefetch deadlines | `0005` | scaffolded | separate prefetch metadata and dispatch treatment |
+| prefetch deadlines | `0005` | implemented | compile-targeted Linux 6.8.x policy for decode, prefetch, prefill, and evict scheduling |
 | ephemeral semantics | `0006` | scaffolded | local RFC semantic flags for recomputable, ephemeral, avoid-pagecache, and cleanup intent |
 | placement/lifetime | `0007` | scaffolded | model/session/cache-pool metadata |
 | NVMe/ZNS/FDP mapping | `0008` | scaffolded | feature-detected mapping hooks with no-op fallback |
-| debug counters | `0009` | implemented | sysfs counters for dispatch, merge, and request-size histogram |
+| debug counters | `0009` | implemented | compile-targeted Linux 6.8.x sysfs counters and tunables for the foundation stack |
 
 ## Current Read
 
 The repo now has the shape of the full Kairo architecture, but the maturity is
 intentionally uneven:
 
-- `0001` and `0004` are the main kernel proof points
-- `0002` and `0009` are technically meaningful RFC/POC scaffolds with concrete instrumentation
-- `0003`, `0005`, `0006`, `0007`, `0008` remain scaffold-heavy later stages
+- `0001`, `0002`, `0005`, and `0009` form the Linux 6.8.x compile-targeted foundation stack
+- `kernel/patches/foundation/0001` through `0004` are the preferred local apply/compile target
+- `0003`, `0006`, `0007`, and `0008` remain scaffold-heavy later stages
+- `0004` remains an aggressive kernel RFC/POC path that still needs its own implement-then-validate cycle
 - the user-space harness can approximate decode, prefetch, prefill, eviction, and multisession pressure
 - the benchmark now supports merge-friendly and merge-hostile access patterns
 - the benchmark now also supports `--hint-mode ioprio|rwf|both` for Stage 4 experiments
@@ -38,8 +39,8 @@ intentionally uneven:
 
 ## What Needs Real Kernel Validation Next
 
+- foundation stack boot validation and runtime counter movement on Linux 6.8.x
 - `0004` merge-bias interaction with real blk-merge decisions on Linux 6.8.x
 - `0003` end-to-end hint propagation from `kiocb` into block-layer metadata
-- `0005` interaction between prefetch urgency and existing `mq-deadline` starvation logic
 - `0006` semantics around direct I/O preference, cleanup, and page-cache pollution
 - `0008` feature detection and graceful fallback on generic NVMe SSDs

@@ -1,8 +1,18 @@
 # Implementation Stages
 
+Kairo uses two patch tracks:
+
+- Broad RFC/POC architecture patches: concept coverage across the full
+  nine-patch series.
+- Foundation patches: the smaller compile-targeted kernel core under
+  `kernel/patches/foundation/`.
+
+The foundation stack currently covers Stage 1 and Stage 2 only.
+
 ## Stage 1
 
-- Patches involved: `0002`, `0001`, `0009`
+- Broad RFC/POC patches involved: `0002`, `0001`, `0009`
+- Foundation patches involved: `foundation/0001`, `foundation/0002`, `foundation/0004`
 - What should compile:
   - local request classification helpers
   - `mq-deadline` decode-priority path
@@ -13,14 +23,14 @@
   - `decode_p99_us`
   - `kairo_decode_dispatches`
   - `kairo_normal_dispatches`
-  - `kairo_hinted_requests`
 - What is still RFC-only:
   - broader hint plumbing beyond `ioprio`
   - anything outside the foundation stack
 
 ## Stage 2
 
-- Patches involved: `0005`
+- Broad RFC/POC patches involved: `0005`
+- Foundation patches involved: `foundation/0003`, `foundation/0004`
 - What should compile:
   - prefetch metadata fields and scheduler recognition hooks
 - What should be measurable:
@@ -30,7 +40,7 @@
 
 ## Stage 3
 
-- Patches involved: `0004`, `0009`, `0002`
+- Broad RFC/POC patches involved: `0004`, `0009`, `0002`
 - What should compile:
   - Kairo merge-bias helpers (`kairo_should_bias_merge`, `kairo_merge_within_limits`)
   - per-request merge-instrumentation flags set in `attempt_merge` and `blk_mq_bio_merge`
@@ -49,7 +59,7 @@
 
 ## Stage 4
 
-- Patches involved: `0003`
+- Broad RFC/POC patches involved: `0003`
 - What should compile:
   - experimental `RWF_KAIRO_*` and `kiocb` plumbing
   - conceptual `kiocb` -> `bio` -> `request` Kairo metadata helpers
@@ -63,7 +73,7 @@
 
 ## Stage 5
 
-- Patches involved: `0006`
+- Broad RFC/POC patches involved: `0006`
 - What should compile:
   - ephemeral and recomputable flag scaffolding
   - local semantic flag helpers on `kiocb`, `bio`, and `request` metadata
@@ -77,7 +87,7 @@
 
 ## Stage 6
 
-- Patches involved: `0007`
+- Broad RFC/POC patches involved: `0007`
 - What should compile:
   - placement and lifetime metadata carriage
 - What should be measurable:
@@ -87,7 +97,7 @@
 
 ## Stage 7
 
-- Patches involved: `0008`
+- Broad RFC/POC patches involved: `0008`
 - What should compile:
   - feature-detected NVMe mapping hooks
 - What should be measurable:
@@ -97,7 +107,7 @@
 
 ## Stage 8
 
-- Patches involved: benchmark, `tools/bpf`, validation scripts
+- Broad RFC/POC patches involved: benchmark, `tools/bpf`, validation scripts
 - What should compile:
   - benchmark modes
   - runtime validation scripts

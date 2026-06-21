@@ -1,46 +1,57 @@
 # Kairo Linux 6.8 Foundation Harness
 
-This directory contains the local validation harness for the Kairo Stage 1
-foundation stack on Linux 6.8.x trees.
+This directory contains the local Linux 6.8.x integration harness for the
+compile-targeted Kairo foundation stack.
 
-Kairo is an internal RFC/POC. These scripts are intended for local,
-benchmark-driven validation on generic NVMe SSDs.
+Kairo is an internal RFC/POC and research prototype. These scripts are for
+local validation of an experimental kernel path on generic NVMe SSDs. They are
+not intended as LKML submission tooling.
 
 ## Foundation Stack
 
-The current compile-targeted foundation stack is:
+The compile-targeted foundation subset lives in
+`kernel/patches/foundation/`:
 
-- `0002-rfc-kairo-request-classification.patch`
-- `0001-rfc-kairo-mq-deadline-decode-priority.patch`
-- `0009-rfc-kairo-sysfs-debug-counters.patch`
+- `0001-kairo-request-classification.patch`
+- `0002-kairo-mq-deadline-decode-priority.patch`
+- `0003-kairo-prefetch-prefill-evict-policy.patch`
+- `0004-kairo-mq-deadline-sysfs-counters.patch`
 
-This stage is meant to make request classification, decode-read scheduler
-priority, and aligned sysfs counters coherent before moving deeper into later
-RFC-only patches.
+The broader `kernel/patches/0001` through `0009` series remains in place as
+the larger RFC/POC architecture track. The `foundation/` subset is the apply
+and compile target for Linux 6.8.x.
 
 ## Scripts
 
-- `apply_kairo_patch.sh`
-  - checks and applies the Stage 1 foundation patches in stack order
-- `validate_patch.sh`
-  - confirms the expected request-classification helpers, scheduler hooks, and
-    sysfs counter symbols are present in the Linux tree
-- `build_block_objects.sh`
+- `apply_foundation_stack.sh`
+  - verifies the Linux tree path and required files
+  - runs `git apply --check` for every foundation patch
+  - applies the stack only if every check succeeds
+- `validate_foundation_stack.sh`
+  - checks that the expected Kairo symbols exist in the patched Linux tree
+- `build_foundation_objects.sh`
   - runs `make olddefconfig`
-  - attempts focused builds of `block/blk-mq.o` and `block/mq-deadline.o`
+  - attempts a focused `block/mq-deadline.o` build
+- `patch_apply_notes.md`
+  - records the local Linux 6.8 validation path and actual outcomes
 
 ## Suggested Flow
 
 ```bash
 ./scripts/validate_patch_stack.sh
-./kernel/integration/linux-6.8/apply_kairo_patch.sh /path/to/linux-6.8.x
-./kernel/integration/linux-6.8/validate_patch.sh /path/to/linux-6.8.x
-./kernel/integration/linux-6.8/build_block_objects.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/apply_foundation_stack.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/validate_foundation_stack.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/build_foundation_objects.sh /path/to/linux-6.8.x
 ```
 
-If the foundation stack builds and the patched kernel boots, continue with:
+If the patched kernel later boots successfully, continue with the runtime and
+benchmark validators:
 
 ```bash
 ./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1
 ./scripts/run_ab_experiment.sh /mnt/nvme/kairo.test nvme0n1
 ```
+
+See [expected_sysfs.md](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/integration/linux-6.8/expected_sysfs.md)
+for the expected scheduler files once the patched kernel is booted and
+`mq-deadline` is selected.
