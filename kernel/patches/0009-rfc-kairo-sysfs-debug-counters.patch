@@ -1,46 +1,10 @@
-From 9999999999990000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Kairo POC <kairo-poc@local>
-Date: Sun, 21 Jun 2026 15:25:00 -0700
-Subject: [RFC/POC PATCH 9/9] block: align Kairo sysfs counters with foundation stack
-
-Subsystem touched:
-- `block/mq-deadline.c`
-
-New Kairo concept:
-- one aligned sysfs counter set for the foundation layer, including merge
-  instrumentation and request-size histogram counters
-
-Relation to AI KV-cache traffic:
-- the benchmark must prove whether decode, prefetch, prefill, eviction, and
-  hinted-request paths are active instead of treating all dispatches as generic
-- merge and shape counters reveal whether KV-cache reads are fragmenting
-
-Temporary implementation:
-- keep sysfs real first and leave debugfs as a later follow-up
-- merge instrumentation flags travel per-request; the scheduler accumulates
-  aggregate counters at dispatch time
-
-Still to validate:
-- whether any extra counters beyond the foundation set are worth keeping
-- whether the request-size histogram is better as a debugfs snapshot
-
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
-index 8b840aa..d91f31a 100644
+index df06aa7..d593561 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@
-+#include <linux/blk_types.h>
-+
-+/* ---------------------------------------------------------------
-+ * Kairo global tunables
-+ * ---------------------------------------------------------------
-+ */
-+static unsigned int kairo_large_read_kb = 1024;
-+module_param_named(kairo_large_read_kb, kairo_large_read_kb, uint, 0644);
-+
-+static bool kairo_merge_bias_enable = true;
-+module_param_named(kairo_merge_bias_enable, kairo_merge_bias_enable, bool, 0644);
-+@@
+@@ -93,8 +93,13 @@ struct deadline_data {
+ 	unsigned int batching;		/* number of sequential requests made */
+ 	unsigned int starved;		/* times reads have starved writes */
  	u64 kairo_decode_dispatches;
 +	u64 kairo_prefetch_dispatches;
 +	u64 kairo_prefill_dispatches;
@@ -49,312 +13,128 @@ index 8b840aa..d91f31a 100644
  	u64 kairo_starvation_escapes;
 +	u64 kairo_hinted_requests;
 +	u64 kairo_unhinted_requests;
- 	unsigned int kairo_decode_budget_used;
-+
-+	/* merge instrumentation counters */
-+	u64 kairo_merge_attempts;
-+	u64 kairo_merge_successes;
-+	u64 kairo_merge_rejects;
-+	u64 kairo_decode_merge_attempts;
-+	u64 kairo_decode_merge_successes;
-+	u64 kairo_prefetch_merge_attempts;
-+	u64 kairo_prefetch_merge_successes;
-+
-+	/* request-size counters */
-+	u64 kairo_small_decode_reads;
-+	u64 kairo_large_decode_reads;
-+	u64 kairo_small_prefetch_reads;
-+	u64 kairo_large_prefetch_reads;
-+
-+	/* request-size histogram (per-class, per-bucket) */
-+	u64 kairo_decode_read_4k;
-+	u64 kairo_decode_read_16k;
-+	u64 kairo_decode_read_64k;
-+	u64 kairo_decode_read_256k;
-+	u64 kairo_decode_read_1m;
-+	u64 kairo_decode_read_4m;
-+	u64 kairo_decode_read_gt4m;
-+	u64 kairo_prefetch_read_4k;
-+	u64 kairo_prefetch_read_16k;
-+	u64 kairo_prefetch_read_64k;
-+	u64 kairo_prefetch_read_256k;
-+	u64 kairo_prefetch_read_1m;
-+	u64 kairo_prefetch_read_4m;
-+	u64 kairo_prefetch_read_gt4m;
-@@
-+static void dd_kairo_account_merge(struct deadline_data *dd, struct request *rq)
+ 	u32 kairo_decode_budget_used;
+ 
+ 	/*
+@@ -617,6 +622,32 @@ static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd
+ 	return rq;
+ }
+ 
++static void dd_kairo_account_dispatch(struct deadline_data *dd,
++				      struct request *rq)
 +{
-+	u32 flags = rq->kairo_hints.flags;
-+	unsigned int sectors;
-+	u64 size_kb;
++	const enum kairo_io_class io_class = kairo_classify_rq(rq);
++	const u16 ioprio = req_get_ioprio(rq);
 +
-+	if (flags & KAIRO_HINT_MERGE_ATTEMPTED) {
-+		dd->kairo_merge_attempts++;
-+		if (flags & KAIRO_HINT_MERGE_SUCCESS) {
-+			dd->kairo_merge_successes++;
-+			if (kairo_is_decode_read(rq))
-+				dd->kairo_decode_merge_successes++;
-+			else if (kairo_is_prefetch_read(rq))
-+				dd->kairo_prefetch_merge_successes++;
-+		} else {
-+			dd->kairo_merge_rejects++;
-+		}
-+		if (kairo_is_decode_read(rq))
-+			dd->kairo_decode_merge_attempts++;
-+		else if (kairo_is_prefetch_read(rq))
-+			dd->kairo_prefetch_merge_attempts++;
-+	}
-+
-+	/* classify request size */
-+	sectors = blk_rq_sectors(rq);
-+	size_kb = (u64)sectors << 9;
-+
-+	if (kairo_is_decode_read(rq)) {
-+		if (size_kb >= kairo_large_read_kb)
-+			dd->kairo_large_decode_reads++;
-+		else
-+			dd->kairo_small_decode_reads++;
-+	} else if (kairo_is_prefetch_read(rq)) {
-+		if (size_kb >= kairo_large_read_kb)
-+			dd->kairo_large_prefetch_reads++;
-+		else
-+			dd->kairo_small_prefetch_reads++;
-+	}
-+}
-+
-+static void dd_kairo_account_size_histogram(struct deadline_data *dd,
-+					     struct request *rq)
-+{
-+	unsigned int sectors = blk_rq_sectors(rq);
-+	u64 *bucket;
-+
-+	if (kairo_is_decode_read(rq)) {
-+		if (sectors <= 8)
-+			bucket = &dd->kairo_decode_read_4k;
-+		else if (sectors <= 32)
-+			bucket = &dd->kairo_decode_read_16k;
-+		else if (sectors <= 128)
-+			bucket = &dd->kairo_decode_read_64k;
-+		else if (sectors <= 512)
-+			bucket = &dd->kairo_decode_read_256k;
-+		else if (sectors <= 2048)
-+			bucket = &dd->kairo_decode_read_1m;
-+		else if (sectors <= 8192)
-+			bucket = &dd->kairo_decode_read_4m;
-+		else
-+			bucket = &dd->kairo_decode_read_gt4m;
-+		(*bucket)++;
-+	} else if (kairo_is_prefetch_read(rq)) {
-+		if (sectors <= 8)
-+			bucket = &dd->kairo_prefetch_read_4k;
-+		else if (sectors <= 32)
-+			bucket = &dd->kairo_prefetch_read_16k;
-+		else if (sectors <= 128)
-+			bucket = &dd->kairo_prefetch_read_64k;
-+		else if (sectors <= 512)
-+			bucket = &dd->kairo_prefetch_read_256k;
-+		else if (sectors <= 2048)
-+			bucket = &dd->kairo_prefetch_read_1m;
-+		else if (sectors <= 8192)
-+			bucket = &dd->kairo_prefetch_read_4m;
-+		else
-+			bucket = &dd->kairo_prefetch_read_gt4m;
-+		(*bucket)++;
-+	}
-+}
-+
-+static void dd_kairo_account_dispatch(struct deadline_data *dd, struct request *rq)
-+{
-+	dd_kairo_account_merge(dd, rq);
-+	dd_kairo_account_size_histogram(dd, rq);
-+
-+	switch (rq->kairo_hints.io_class) {
-+	case KAIRO_IO_DECODE_READ:
-+		dd->kairo_decode_dispatches++;
++	if (IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_NONE)
++		dd->kairo_unhinted_requests++;
++	else
 +		dd->kairo_hinted_requests++;
-+		break;
++
++	switch (io_class) {
 +	case KAIRO_IO_PREFETCH_READ:
 +		dd->kairo_prefetch_dispatches++;
-+		dd->kairo_hinted_requests++;
 +		break;
 +	case KAIRO_IO_PREFILL_WRITE:
 +		dd->kairo_prefill_dispatches++;
-+		dd->kairo_hinted_requests++;
 +		break;
 +	case KAIRO_IO_EVICT:
 +		dd->kairo_evict_dispatches++;
-+		dd->kairo_hinted_requests++;
-+		break;
-+	case KAIRO_IO_NORMAL:
-+		dd->kairo_normal_dispatches++;
-+		dd->kairo_unhinted_requests++;
 +		break;
 +	default:
-+		dd->kairo_unhinted_requests++;
 +		break;
 +	}
 +}
-@@
-+static ssize_t kairo_large_read_kb_show(struct elevator_queue *e, char *page)
-+{
-+	return sysfs_emit(page, "%u\n", kairo_large_read_kb);
-+}
 +
-+static ssize_t kairo_merge_bias_enable_show(struct elevator_queue *e, char *page)
-+{
-+	return sysfs_emit(page, "%d\n", kairo_merge_bias_enable);
-+}
-+
-+static ssize_t kairo_large_read_kb_store(struct elevator_queue *e,
-+					  const char *page, size_t count)
-+{
-+	int data, ret;
-+
-+	ret = kstrtoint(page, 0, &data);
-+	if (ret < 0)
-+		return ret;
-+	if (data < 4)
-+		data = 4;
-+	kairo_large_read_kb = data;
-+	return count;
-+}
-+
-+static ssize_t kairo_merge_bias_enable_store(struct elevator_queue *e,
-+					      const char *page, size_t count)
-+{
-+	int data, ret;
-+
-+	ret = kstrtoint(page, 0, &data);
-+	if (ret < 0)
-+		return ret;
-+	kairo_merge_bias_enable = !!data;
-+	return count;
-+}
-+
-+static ssize_t kairo_merge_attempts_show(struct elevator_queue *e, char *page)
+ /*
+  * Called from blk_mq_run_hw_queue() -> __blk_mq_sched_dispatch_requests().
+  *
+@@ -635,6 +666,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 	spin_lock(&dd->lock);
+ 	rq = dd_kairo_dispatch_decode_request(dd, now);
+ 	if (rq) {
++		dd_kairo_account_dispatch(dd, rq);
+ 		if (!kairo_is_decode_read(rq)) {
+ 			dd->kairo_decode_budget_used = 0;
+ 			dd->kairo_normal_dispatches++;
+@@ -657,6 +689,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 	}
+ 
+ 	if (rq) {
++		dd_kairo_account_dispatch(dd, rq);
+ 		if (kairo_enable && prio != DD_RT_PRIO &&
+ 		    dd_queued(dd, DD_RT_PRIO) && op_is_write(req_op(rq))) {
+ 			dd->kairo_starvation_escapes++;
+@@ -1056,6 +1089,33 @@ static ssize_t deadline_kairo_normal_dispatches_show(struct elevator_queue *e,
+ 			  (unsigned long long)dd->kairo_normal_dispatches);
+ }
+ 
++static ssize_t deadline_kairo_prefetch_dispatches_show(struct elevator_queue *e,
++							char *page)
 +{
 +	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_merge_attempts);
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_prefetch_dispatches);
 +}
 +
-+static ssize_t kairo_merge_successes_show(struct elevator_queue *e, char *page)
++static ssize_t deadline_kairo_prefill_dispatches_show(struct elevator_queue *e,
++						       char *page)
 +{
 +	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_merge_successes);
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_prefill_dispatches);
 +}
 +
-+static ssize_t kairo_merge_rejects_show(struct elevator_queue *e, char *page)
-+{
-+	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_merge_rejects);
-+}
-+
-+static ssize_t kairo_decode_merge_attempts_show(struct elevator_queue *e,
-+						 char *page)
-+{
-+	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_decode_merge_attempts);
-+}
-+
-+static ssize_t kairo_decode_merge_successes_show(struct elevator_queue *e,
-+						  char *page)
-+{
-+	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_decode_merge_successes);
-+}
-+
-+static ssize_t kairo_prefetch_merge_attempts_show(struct elevator_queue *e,
-+						   char *page)
-+{
-+	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_prefetch_merge_attempts);
-+}
-+
-+static ssize_t kairo_prefetch_merge_successes_show(struct elevator_queue *e,
++static ssize_t deadline_kairo_evict_dispatches_show(struct elevator_queue *e,
 +						    char *page)
 +{
 +	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_prefetch_merge_successes);
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_evict_dispatches);
 +}
 +
-+static ssize_t kairo_small_decode_reads_show(struct elevator_queue *e,
-+					      char *page)
+ static ssize_t deadline_kairo_starvation_escapes_show(struct elevator_queue *e,
+ 						      char *page)
+ {
+@@ -1065,6 +1125,24 @@ static ssize_t deadline_kairo_starvation_escapes_show(struct elevator_queue *e,
+ 			  (unsigned long long)dd->kairo_starvation_escapes);
+ }
+ 
++static ssize_t deadline_kairo_hinted_requests_show(struct elevator_queue *e,
++						   char *page)
 +{
 +	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_small_decode_reads);
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_hinted_requests);
 +}
 +
-+static ssize_t kairo_large_decode_reads_show(struct elevator_queue *e,
-+					      char *page)
++static ssize_t deadline_kairo_unhinted_requests_show(struct elevator_queue *e,
++						     char *page)
 +{
 +	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_large_decode_reads);
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_unhinted_requests);
 +}
 +
-+static ssize_t kairo_small_prefetch_reads_show(struct elevator_queue *e,
-+						char *page)
-+{
-+	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_small_prefetch_reads);
-+}
-+
-+static ssize_t kairo_large_prefetch_reads_show(struct elevator_queue *e,
-+						char *page)
-+{
-+	struct deadline_data *dd = e->elevator_data;
-+	return sysfs_emit(page, "%llu\n", dd->kairo_large_prefetch_reads);
-+}
-@@
-+/* histogram show helpers */
-+#define KAIRO_HISTOGRAM_SHOW(name)					\
-+static ssize_t kairo_##name##_show(struct elevator_queue *e, char *page)	\
-+{									\
-+	struct deadline_data *dd = e->elevator_data;			\
-+	return sysfs_emit(page, "%llu\n", dd->kairo_##name);		\
-+}
-+
-+KAIRO_HISTOGRAM_SHOW(decode_read_4k);
-+KAIRO_HISTOGRAM_SHOW(decode_read_16k);
-+KAIRO_HISTOGRAM_SHOW(decode_read_64k);
-+KAIRO_HISTOGRAM_SHOW(decode_read_256k);
-+KAIRO_HISTOGRAM_SHOW(decode_read_1m);
-+KAIRO_HISTOGRAM_SHOW(decode_read_4m);
-+KAIRO_HISTOGRAM_SHOW(decode_read_gt4m);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_4k);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_16k);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_64k);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_256k);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_1m);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_4m);
-+KAIRO_HISTOGRAM_SHOW(prefetch_read_gt4m);
-@@
-+	__ATTR(kairo_large_read_kb, 0644, kairo_large_read_kb_show,
-+	       kairo_large_read_kb_store),
-+	__ATTR(kairo_merge_bias_enable, 0644, kairo_merge_bias_enable_show,
-+	       kairo_merge_bias_enable_store),
-+	__ATTR_RO(kairo_merge_attempts),
-+	__ATTR_RO(kairo_merge_successes),
-+	__ATTR_RO(kairo_merge_rejects),
-+	__ATTR_RO(kairo_decode_merge_attempts),
-+	__ATTR_RO(kairo_decode_merge_successes),
-+	__ATTR_RO(kairo_prefetch_merge_attempts),
-+	__ATTR_RO(kairo_prefetch_merge_successes),
-+	__ATTR_RO(kairo_small_decode_reads),
-+	__ATTR_RO(kairo_large_decode_reads),
-+	__ATTR_RO(kairo_small_prefetch_reads),
-+	__ATTR_RO(kairo_large_prefetch_reads),
-+	__ATTR_RO(kairo_decode_read_4k),
-+	__ATTR_RO(kairo_decode_read_16k),
-+	__ATTR_RO(kairo_decode_read_64k),
-+	__ATTR_RO(kairo_decode_read_256k),
-+	__ATTR_RO(kairo_decode_read_1m),
-+	__ATTR_RO(kairo_decode_read_4m),
-+	__ATTR_RO(kairo_decode_read_gt4m),
-+	__ATTR_RO(kairo_prefetch_read_4k),
-+	__ATTR_RO(kairo_prefetch_read_16k),
-+	__ATTR_RO(kairo_prefetch_read_64k),
-+	__ATTR_RO(kairo_prefetch_read_256k),
-+	__ATTR_RO(kairo_prefetch_read_1m),
-+	__ATTR_RO(kairo_prefetch_read_4m),
-+	__ATTR_RO(kairo_prefetch_read_gt4m),
+ #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
+ static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
+ {									\
+@@ -1114,8 +1192,13 @@ static struct elv_fs_entry deadline_attrs[] = {
+ 	DD_ATTR(kairo_enable),
+ 	DD_ATTR(kairo_decode_budget),
+ 	DD_RO_ATTR(kairo_decode_dispatches),
++	DD_RO_ATTR(kairo_prefetch_dispatches),
++	DD_RO_ATTR(kairo_prefill_dispatches),
++	DD_RO_ATTR(kairo_evict_dispatches),
+ 	DD_RO_ATTR(kairo_normal_dispatches),
+ 	DD_RO_ATTR(kairo_starvation_escapes),
++	DD_RO_ATTR(kairo_hinted_requests),
++	DD_RO_ATTR(kairo_unhinted_requests),
  	__ATTR_NULL
+ };
+ 

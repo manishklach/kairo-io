@@ -634,7 +634,6 @@ static off_t next_read_block(const struct kairo_worker_ctx *ctx, off_t op_index,
 {
     unsigned int session_seed = ctx->session_id * 131;
     unsigned int model_seed = ctx->model_id * 977;
-    off_t base;
 
     switch (ctx->cfg->access_pattern) {
     case KAIRO_ACCESS_SEQUENTIAL:

@@ -34,12 +34,26 @@ for patch in "${foundation_patches[@]}"; do
   fi
 done
 
+scratch_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf "$scratch_dir"
+}
+trap cleanup EXIT
+
+mkdir -p "$scratch_dir/block" "$scratch_dir/include/linux"
+cp "$LINUX_TREE/block/mq-deadline.c" "$scratch_dir/block/mq-deadline.c"
+cp "$LINUX_TREE/block/blk-mq.c" "$scratch_dir/block/blk-mq.c"
+cp "$LINUX_TREE/include/linux/blk-mq.h" "$scratch_dir/include/linux/blk-mq.h"
+cp "$LINUX_TREE/include/linux/blk_types.h" "$scratch_dir/include/linux/blk_types.h"
+
 for patch in "${foundation_patches[@]}"; do
   echo "[kairo] checking patch applicability: $(basename "$patch")"
-  if ! git -C "$LINUX_TREE" apply --check "$patch"; then
+  if ! git -C "$scratch_dir" apply --check "$patch"; then
     echo "[kairo] patch check failed: $(basename "$patch")" >&2
     exit 1
   fi
+
+  git -C "$scratch_dir" apply "$patch"
 done
 
 for patch in "${foundation_patches[@]}"; do

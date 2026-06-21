@@ -1,35 +1,11 @@
-From 2222222222220000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Kairo POC <kairo-poc@local>
-Date: Sun, 21 Jun 2026 15:20:00 -0700
-Subject: [RFC/POC PATCH 2/9] block: add Kairo request classification helpers
-
-Subsystem touched:
-- `include/linux/blk_types.h`
-- `include/linux/blk-mq.h`
-- `block/blk-mq.c`
-
-New Kairo concept:
-- a local RFC/POC request-hint structure and shared classification helpers
-
-Relation to AI KV-cache traffic:
-- decode, prefetch, prefill, and eviction paths need one shared interpretation
-  of request intent before schedulers can make Kairo-aware dispatch choices
-
-Temporary implementation:
-- derive Kairo class from existing request op and `ioprio`
-- attach a local `kairo_request_hints` field to `struct request`
-- initialize the hints during `blk_mq_rq_ctx_init()` for Linux 6.8.x
-- include merge-instrumentation flags consumed by blk-merge and the scheduler
-
-Still to validate:
-- whether the selected request init hook remains the best insertion point across
-  nearby kernel versions
-
 diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
-index 31c4b1b..631af67 100644
+index f288c94..e2886d9 100755
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@
+@@ -206,6 +206,22 @@ static inline bool blk_path_error(blk_status_t error)
+ 	return true;
+ }
+ 
 +enum kairo_io_class {
 +	KAIRO_IO_NONE = 0,
 +	KAIRO_IO_DECODE_READ,
@@ -46,24 +22,35 @@ index 31c4b1b..631af67 100644
 +	u32 flags;
 +};
 +
-+/*
-+ * Per-request Kairo merge-instrumentation flags.
-+ * Set in the blk-merge path (attempt_merge), consumed by the scheduler at
-+ * dispatch time to accumulate aggregate merge counters.
-+ */
-+#define KAIRO_HINT_MERGE_ATTEMPTED	BIT(0)
-+#define KAIRO_HINT_MERGE_SUCCESS	BIT(1)
-+
- diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
-index 8dca8f1..7d6c9f2 100644
+ /*
+  * From most significant bit:
+  * 1 bit: reserved for other usage, see below
+diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
+index 7a8150a..371d9d5 100755
 --- a/include/linux/blk-mq.h
 +++ b/include/linux/blk-mq.h
-@@
+@@ -136,6 +136,7 @@ struct request {
+ #endif
+ 
+ 	unsigned short ioprio;
++	struct kairo_request_hints kairo_hints;
+ 
+ 	enum mq_rq_state state;
+ 	atomic_t ref;
+@@ -203,6 +204,64 @@ static inline unsigned short req_get_ioprio(struct request *req)
+ 	return req->ioprio;
+ }
+ 
 +static inline enum kairo_io_class kairo_classify_rq(struct request *rq)
 +{
 +	unsigned short ioprio = req_get_ioprio(rq);
 +
 +	if (req_op(rq) == REQ_OP_DISCARD || req_op(rq) == REQ_OP_WRITE_ZEROES)
++		return KAIRO_IO_EVICT;
++
++	if (rq_data_dir(rq) == WRITE &&
++	    IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
++	    IOPRIO_PRIO_DATA(ioprio) == 6)
 +		return KAIRO_IO_EVICT;
 +
 +	if (rq_data_dir(rq) == READ &&
@@ -81,7 +68,7 @@ index 8dca8f1..7d6c9f2 100644
 +	    IOPRIO_PRIO_DATA(ioprio) == 7)
 +		return KAIRO_IO_PREFILL_WRITE;
 +
-+	if (op_is_write(req_op(rq)) || op_is_sync(req_op(rq)) || rq_data_dir(rq) == READ)
++	if (op_is_write(req_op(rq)) || rq_data_dir(rq) == READ)
 +		return KAIRO_IO_NORMAL;
 +
 +	return KAIRO_IO_NONE;
@@ -90,88 +77,40 @@ index 8dca8f1..7d6c9f2 100644
 +static inline void kairo_init_request_hints(struct request *rq)
 +{
 +	memset(&rq->kairo_hints, 0, sizeof(rq->kairo_hints));
-+	rq->kairo_hints.io_class = kairo_classify_rq(rq);
 +}
 +
 +static inline bool kairo_is_decode_read(struct request *rq)
 +{
-+	return rq->kairo_hints.io_class == KAIRO_IO_DECODE_READ;
++	return kairo_classify_rq(rq) == KAIRO_IO_DECODE_READ;
 +}
 +
 +static inline bool kairo_is_prefetch_read(struct request *rq)
 +{
-+	return rq->kairo_hints.io_class == KAIRO_IO_PREFETCH_READ;
++	return kairo_classify_rq(rq) == KAIRO_IO_PREFETCH_READ;
 +}
 +
 +static inline bool kairo_is_prefill_write(struct request *rq)
 +{
-+	return rq->kairo_hints.io_class == KAIRO_IO_PREFILL_WRITE;
++	return kairo_classify_rq(rq) == KAIRO_IO_PREFILL_WRITE;
 +}
 +
 +static inline bool kairo_is_evict(struct request *rq)
 +{
-+	return rq->kairo_hints.io_class == KAIRO_IO_EVICT;
++	return kairo_classify_rq(rq) == KAIRO_IO_EVICT;
 +}
 +
-+static inline bool kairo_is_merge_candidate(struct request *rq, struct bio *bio)
-+{
-+	if (!rq->kairo_hints.io_class)
-+		return false;
-+	if (bio_data_dir(bio) != rq_data_dir(rq))
-+		return false;
-+	if (req_op(rq) != bio_op(bio))
-+		return false;
-+	return true;
-+}
-+
-+static inline bool kairo_should_bias_merge(struct request *rq, struct bio *bio)
-+{
-+	enum kairo_io_class rq_class = rq->kairo_hints.io_class;
-+
-+	if (rq_class != KAIRO_IO_DECODE_READ &&
-+	    rq_class != KAIRO_IO_PREFETCH_READ)
-+		return false;
-+
-+	return kairo_is_merge_candidate(rq, bio);
-+}
-+
-+static inline bool kairo_merge_within_limits(struct request_queue *q,
-+					      struct request *rq,
-+					      struct bio *bio)
-+{
-+	unsigned int sectors = blk_rq_sectors(rq) + bio_sectors(bio);
-+
-+	if (sectors > queue_max_hw_sectors(q))
-+		return false;
-+	if (sectors > queue_max_segment_size(q) >> 9)
-+		return false;
-+	return true;
-+}
-+
-+static inline bool kairo_has_deadline(struct request *rq)
-+{
-+	return rq->kairo_hints.io_class == KAIRO_IO_DECODE_READ ||
-+	       rq->kairo_hints.io_class == KAIRO_IO_PREFETCH_READ;
-+}
-@@
-+	struct kairo_request_hints	kairo_hints;
-+
- diff --git a/block/blk-mq.c b/block/blk-mq.c
-index c4aab7c..c04b617 100644
+ #define rq_data_dir(rq)		(op_is_write(req_op(rq)) ? WRITE : READ)
+ 
+ #define rq_dma_dir(rq) \
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index f1d0718..74c2142 100755
 --- a/block/blk-mq.c
 +++ b/block/blk-mq.c
-@@
-+static void blk_mq_kairo_init_request(struct request *rq)
-+{
-+	/*
-+	 * Linux 6.8.x local RFC/POC:
-+	 * initialize request-local Kairo hints during blk-mq request context
-+	 * setup so schedulers can consume one shared classification path.
-+	 */
+@@ -381,6 +381,7 @@ static struct request *blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data,
+ #endif
+ 	rq->end_io = NULL;
+ 	rq->end_io_data = NULL;
 +	kairo_init_request_hints(rq);
-+}
-@@
- void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
- {
-+	blk_mq_kairo_init_request(rq);
- }
+ 
+ 	blk_crypto_rq_set_defaults(rq);
+ 	INIT_LIST_HEAD(&rq->queuelist);
