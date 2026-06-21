@@ -55,6 +55,12 @@ struct kairo_stats {
     long double decode_latency_sum_us;
     double decode_latency_max_us;
     double *decode_latencies_us;
+    uint64_t ioprio_decode_ok;
+    uint64_t ioprio_decode_fail;
+    uint64_t ioprio_prefetch_ok;
+    uint64_t ioprio_prefetch_fail;
+    uint64_t ioprio_write_ok;
+    uint64_t ioprio_write_fail;
 };
 
 struct kairo_worker_ctx {
@@ -292,6 +298,33 @@ static void stats_destroy(struct kairo_stats *stats)
     free(stats->decode_latencies_us);
 }
 
+static void record_ioprio_result(struct kairo_stats *stats, enum kairo_worker_kind kind, bool ok)
+{
+    pthread_mutex_lock(&stats->lock);
+    switch (kind) {
+    case KAIRO_WORKER_DECODE:
+        if (ok)
+            stats->ioprio_decode_ok++;
+        else
+            stats->ioprio_decode_fail++;
+        break;
+    case KAIRO_WORKER_PREFETCH:
+        if (ok)
+            stats->ioprio_prefetch_ok++;
+        else
+            stats->ioprio_prefetch_fail++;
+        break;
+    case KAIRO_WORKER_WRITE:
+    default:
+        if (ok)
+            stats->ioprio_write_ok++;
+        else
+            stats->ioprio_write_fail++;
+        break;
+    }
+    pthread_mutex_unlock(&stats->lock);
+}
+
 static void record_decode(struct kairo_stats *stats, double latency_us, size_t bytes)
 {
     pthread_mutex_lock(&stats->lock);
@@ -342,12 +375,15 @@ static void *worker_main(void *arg)
     int memalign_rc;
 
     if (set_current_ioprio(ctx->kind) != 0) {
+        record_ioprio_result(ctx->stats, ctx->kind, false);
         fprintf(stderr,
                 "warning: ioprio_set failed for %s worker %u: %s. "
                 "Run with enough privilege if you need realtime-class signaling.\n",
                 worker_kind_name(ctx->kind),
                 ctx->worker_id,
                 strerror(errno));
+    } else {
+        record_ioprio_result(ctx->stats, ctx->kind, true);
     }
 
     memalign_rc = posix_memalign(&buffer, KAIRO_DIRECT_ALIGN, block_size);
@@ -477,6 +513,12 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("decode_read_MBps=%.2f\n", decode_read_mbps);
     printf("prefetch_read_MBps=%.2f\n", prefetch_read_mbps);
     printf("write_MBps=%.2f\n", write_mbps);
+    printf("ioprio_decode_ok=%" PRIu64 "\n", stats->ioprio_decode_ok);
+    printf("ioprio_decode_fail=%" PRIu64 "\n", stats->ioprio_decode_fail);
+    printf("ioprio_prefetch_ok=%" PRIu64 "\n", stats->ioprio_prefetch_ok);
+    printf("ioprio_prefetch_fail=%" PRIu64 "\n", stats->ioprio_prefetch_fail);
+    printf("ioprio_write_ok=%" PRIu64 "\n", stats->ioprio_write_ok);
+    printf("ioprio_write_fail=%" PRIu64 "\n", stats->ioprio_write_fail);
     puts("todo=replace pthread pread/pwrite path with io_uring worker path");
 
     free(sorted);

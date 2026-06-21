@@ -30,3 +30,9 @@ fi
 if [[ -r "/sys/block/$DEV/queue/scheduler" ]]; then
   cat "/sys/block/$DEV/queue/scheduler" >"$OUT/scheduler.txt" 2>&1 || true
 fi
+
+for name in kairo_decode_dispatches kairo_normal_dispatches kairo_starvation_escapes; do
+  if [[ -r "/sys/block/$DEV/queue/iosched/$name" ]]; then
+    cat "/sys/block/$DEV/queue/iosched/$name" >"$OUT/$name.txt" 2>&1 || true
+  fi
+done

@@ -1,57 +1,33 @@
-From 9e4d9cf9d8300000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Kairo POC <kairo-poc@local>
-Date: Sat, 21 Jun 2026 12:00:00 -0700
-Subject: [RFC/POC PATCH] mq-deadline: prioritize Kairo decode reads
-
-Local RFC/POC patch scaffold for Kairo.
-
-This patch is written as a plausible local experiment against the Linux 6.8.x
-`block/mq-deadline.c` layout. It is meant to be adapted against the exact
-kernel tree under test before build and boot validation.
-
-Current local classification:
-- RT class, prio 0, read  => KAIRO_DECODE_READ
-- RT class, prio 1, read  => KAIRO_PREFETCH_READ
-- BE class, prio 7, write => KAIRO_PREFILL_WRITE
-
-Key intent:
-- add a simple `kairo_enable` toggle
-- prefer decode-critical reads before normal mq-deadline dispatch
-- bound decode preference with a budget so writes are not totally starved
-- preserve normal mq-deadline behavior when disabled
-
-Known adaptation points:
-- exact insertion point may differ by kernel revision
-- helper names such as `req_get_ioprio()` should be checked against the local tree
-- internal counters still need real export plumbing if debug visibility is required
-
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
-index 111111111111..222222222222 100644
+index 02a916b..4d7aa75 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -23,6 +23,11 @@
-  static const int writes_starved = 2;
-  static const int fifo_batch = 16;
+@@ -37,6 +37,10 @@ static const int prio_aging_expire = 10 * HZ;
+ static const int writes_starved = 2;    /* max times reads can starve a write */
+ static const int fifo_batch = 16;       /* # of sequential requests treated as one
+ 				     by the above parameters. For throughput. */
 +static bool kairo_enable = true;
 +module_param_named(kairo_enable, kairo_enable, bool, 0644);
 +static unsigned int kairo_decode_budget = 32;
 +module_param_named(kairo_decode_budget, kairo_decode_budget, uint, 0644);
-+
-+
-@@ -95,6 +100,11 @@ struct deadline_data {
+ 
+ enum dd_data_dir {
+ 	DD_READ		= READ,
+@@ -103,6 +107,10 @@ struct deadline_data {
+ 
  	spinlock_t lock;
  	spinlock_t zone_lock;
-+
 +	u64 kairo_decode_dispatches;
-+	u64 kairo_prefetch_dispatches;
 +	u64 kairo_normal_dispatches;
 +	u64 kairo_starvation_escapes;
 +	unsigned int kairo_decode_budget_used;
-  };
-@@ -126,6 +136,35 @@ static u8 dd_rq_ioclass(struct request *rq)
+ };
+ 
+ /* Maps an I/O priority class to a deadline scheduler priority. */
+@@ -128,6 +136,33 @@ static u8 dd_rq_ioclass(struct request *rq)
  	return IOPRIO_PRIO_CLASS(req_get_ioprio(rq));
  }
-+
+ 
 +static inline bool dd_kairo_is_decode_read(struct request *rq)
 +{
 +	unsigned short ioprio = req_get_ioprio(rq);
@@ -78,10 +54,14 @@ index 111111111111..222222222222 100644
 +	       IOPRIO_PRIO_CLASS(ioprio) == IOPRIO_CLASS_BE &&
 +	       IOPRIO_PRIO_DATA(ioprio) == 7;
 +}
-@@ -564,6 +603,57 @@ static struct request *dd_dispatch_prio_aged_requests(struct deadline_data *dd,
++
+ /*
+  * get the request before `rq' in sector-sorted order
+  */
+@@ -585,6 +620,50 @@ static struct request *dd_dispatch_prio_aged_requests(struct deadline_data *dd,
  	return NULL;
  }
-+
+ 
 +static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd,
 +							unsigned long latest_start)
 +{
@@ -125,27 +105,25 @@ index 111111111111..222222222222 100644
 +	rq->rq_flags |= RQF_STARTED;
 +	return rq;
 +}
-@@ -599,6 +689,14 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
- 	struct request *rq;
- 	enum dd_prio prio;
 +
-+	if (kairo_enable) {
-+		spin_lock(&dd->lock);
-+		rq = dd_kairo_dispatch_decode_request(dd, now);
-+		spin_unlock(&dd->lock);
-+		if (rq)
-+			return rq;
-+	}
+ /*
+  * Called from blk_mq_run_hw_queue() -> __blk_mq_sched_dispatch_requests().
+  *
+@@ -601,6 +680,10 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 	enum dd_prio prio;
  
  	spin_lock(&dd->lock);
- 	rq = dd_dispatch_prio_aged_requests(dd, now);
-@@ -612,8 +710,18 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
- 	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
- 		rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
- 		if (rq || dd_queued(dd, prio))
-+			break;
-+	}
++	rq = dd_kairo_dispatch_decode_request(dd, now);
++	if (rq)
++		goto unlock;
 +
+ 	rq = dd_dispatch_prio_aged_requests(dd, now);
+ 	if (rq)
+ 		goto unlock;
+@@ -615,6 +698,17 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 			break;
+ 	}
+ 
 +	if (kairo_enable) {
 +		if (rq && !dd_kairo_is_decode_read(rq)) {
 +			dd->kairo_decode_budget_used = 0;
@@ -155,6 +133,100 @@ index 111111111111..222222222222 100644
 +		} else if (!rq) {
 +			dd->kairo_decode_budget_used = 0;
 +		}
- 	}
- 
++	}
++
+ unlock:
  	spin_unlock(&dd->lock);
+ 
+@@ -985,6 +1079,41 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
+ #undef SHOW_INT
+ #undef SHOW_JIFFIES
+ 
++static ssize_t deadline_kairo_enable_show(struct elevator_queue *e, char *page)
++{
++	return sysfs_emit(page, "%d\n", kairo_enable);
++}
++
++static ssize_t deadline_kairo_decode_budget_show(struct elevator_queue *e,
++						 char *page)
++{
++	return sysfs_emit(page, "%u\n", kairo_decode_budget);
++}
++
++static ssize_t kairo_decode_dispatches_show(struct elevator_queue *e,
++					    char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n", dd->kairo_decode_dispatches);
++}
++
++static ssize_t kairo_normal_dispatches_show(struct elevator_queue *e,
++					    char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n", dd->kairo_normal_dispatches);
++}
++
++static ssize_t kairo_starvation_escapes_show(struct elevator_queue *e,
++					     char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n", dd->kairo_starvation_escapes);
++}
++
+ #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
+ static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
+ {									\
+@@ -1016,6 +1145,34 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
+ #undef STORE_INT
+ #undef STORE_JIFFIES
+ 
++static ssize_t deadline_kairo_enable_store(struct elevator_queue *e,
++					   const char *page, size_t count)
++{
++	int data, ret;
++
++	ret = kstrtoint(page, 0, &data);
++	if (ret < 0)
++		return ret;
++
++	kairo_enable = !!data;
++	return count;
++}
++
++static ssize_t deadline_kairo_decode_budget_store(struct elevator_queue *e,
++						  const char *page, size_t count)
++{
++	int data, ret;
++
++	ret = kstrtoint(page, 0, &data);
++	if (ret < 0)
++		return ret;
++	if (data < 1)
++		data = 1;
++
++	kairo_decode_budget = data;
++	return count;
++}
++
+ #define DD_ATTR(name) \
+ 	__ATTR(name, 0644, deadline_##name##_show, deadline_##name##_store)
+ 
+@@ -1027,6 +1184,13 @@ static struct elv_fs_entry deadline_attrs[] = {
+ 	DD_ATTR(async_depth),
+ 	DD_ATTR(fifo_batch),
+ 	DD_ATTR(prio_aging_expire),
++	__ATTR(kairo_enable, 0644, deadline_kairo_enable_show,
++	       deadline_kairo_enable_store),
++	__ATTR(kairo_decode_budget, 0644, deadline_kairo_decode_budget_show,
++	       deadline_kairo_decode_budget_store),
++	__ATTR_RO(kairo_decode_dispatches),
++	__ATTR_RO(kairo_normal_dispatches),
++	__ATTR_RO(kairo_starvation_escapes),
+ 	__ATTR_NULL
+ };
+ 
+
