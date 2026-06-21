@@ -1,16 +1,22 @@
-# KV-IO
+# Kairo
 
-Linux block-layer extensions for AI inference KV-cache storage
+**Kernel AI Runtime I/O for KV-cache-aware Linux storage**
 
-Status: Internal RFC/POC
+**Status:** Internal RFC/POC  
+**Scope:** Linux block-layer, io_uring, NVMe, and benchmark-driven storage scheduling research  
+**Important:** This project is not intended for LKML submission at this stage.
 
-This project is not intended for LKML submission at this stage.
+Kairo is an internal Linux-kernel RFC/POC exploring AI KV-cache-aware block I/O for generic NVMe SSDs.
 
-KV cache is neither ordinary file data nor ordinary memory. It is large-block, read-dominant, latency-sensitive, session-scoped, and often recomputable inference state. KV-IO explores whether Linux can schedule and place this traffic more intelligently on generic NVMe SSDs.
+KV cache is neither ordinary file data nor ordinary memory. It is large-block, read-dominant, latency-sensitive, session-scoped, and often recomputable inference state. Kairo explores whether Linux can schedule, classify, prioritize, and place this traffic more intelligently on generic NVMe SSDs.
 
 ## Problem Statement
 
 Modern long-context and agentic AI inference creates a storage workload that Linux does not currently treat as first-class. Decode reads are latency-critical. Prefetch reads are important but not immediately blocking. Prefill writes are background relative to decode. Eviction and discard are lowest priority. When this inference state spills onto SSD-backed tiers, decode-critical reads can compete with background writes, cleanup traffic, filesystem activity, and unrelated storage work.
+
+Kairo asks a direct systems question:
+
+> Can Linux block-layer changes reduce p99 decode-read latency and improve mixed prefill/decode behavior for AI inference-like KV-cache workloads on generic NVMe SSDs?
 
 ## Why AI KV-Cache I/O Is Different
 
@@ -27,7 +33,7 @@ large-chunk eviction
 recomputable inference state
 ```
 
-Traditional Linux block scheduling does not explicitly recognize that combination of urgency, mutability, and reuse.
+Traditional Linux block scheduling does not explicitly recognize that combination of urgency, mutability, reuse, and recomputability.
 
 ## Architecture
 
@@ -45,7 +51,7 @@ Traditional Linux block scheduling does not explicitly recognize that combinatio
 | - registered buffers                                    |
 | - ioprio / placement / lifetime hints                   |
 +---------------------------------------------------------+
-| KV-IO Block Layer                                       |
+| Kairo Block Layer                                       |
 | - request classification                                |
 | - decode-critical priority lane                         |
 | - prefetch-aware scheduling                             |
@@ -63,7 +69,7 @@ Traditional Linux block scheduling does not explicitly recognize that combinatio
 
 ## Full Architecture Scope
 
-KV-IO is intentionally broader than a single scheduler tweak. The repository explores:
+Kairo is intentionally broader than a single scheduler tweak. The repository explores:
 
 - KV-cache I/O classification
 - `mq-deadline` decode-critical read priority
@@ -81,23 +87,23 @@ KV-IO is intentionally broader than a single scheduler tweak. The repository exp
 The first working patch starts in `mq-deadline` and uses existing `ioprio` metadata as a temporary local classification mechanism:
 
 ```text
-RT prio 0 read  -> KVIO_DECODE_READ
-RT prio 1 read  -> KVIO_PREFETCH_READ
-BE prio 7 write -> KVIO_PREFILL_WRITE
-discard         -> KVIO_EVICT
+RT prio 0 read  -> KAIO_DECODE_READ
+RT prio 1 read  -> KAIO_PREFETCH_READ
+BE prio 7 write -> KAIO_PREFILL_WRITE
+discard         -> KAIO_EVICT
 ```
 
 This is an internal RFC/POC mechanism only. It is not a permanent UAPI proposal.
 
 Initial patch artifacts:
 
-- [0001-rfc-kvio-mq-deadline-decode-priority.patch](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/patches/0001-rfc-kvio-mq-deadline-decode-priority.patch)
-- [0002-rfc-kvio-block-request-classification.patch](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/patches/0002-rfc-kvio-block-request-classification.patch)
-- [0003-rfc-kvio-debugfs-scheduler-stats.patch](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/patches/0003-rfc-kvio-debugfs-scheduler-stats.patch)
+- [`kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch`](kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch)
+- [`kernel/patches/0002-rfc-kairo-block-request-classification.patch`](kernel/patches/0002-rfc-kairo-block-request-classification.patch)
+- [`kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch`](kernel/patches/0003-rfc-kairo-debugfs-scheduler-stats.patch)
 
 ## Benchmark Strategy
 
-The primary benchmark path is [bench/kvio_bench.c](/C:/Users/ManishKL/Documents/Playground/kv-io/bench/kvio_bench.c), a compilable pthreads benchmark that models:
+The primary benchmark path is [`bench/kairo_bench.c`](bench/kairo_bench.c), a compilable pthreads benchmark that models:
 
 - decode reader threads
 - prefetch reader threads
@@ -106,7 +112,7 @@ The primary benchmark path is [bench/kvio_bench.c](/C:/Users/ManishKL/Documents/
 - direct I/O where available
 - per-thread `ioprio` assignment
 
-`fio` profiles in [bench/fio](/C:/Users/ManishKL/Documents/Playground/kv-io/bench/fio) provide quick workload variants for decode-heavy, mixed interference, multi-model, and eviction-pressure scenarios.
+`fio` profiles in [`bench/fio`](bench/fio) provide quick workload variants for decode-heavy, mixed interference, multi-model, and eviction-pressure scenarios.
 
 ## Success Metrics
 
@@ -129,11 +135,12 @@ Secondary metrics:
 - permanent UAPI design at this stage
 - production-readiness claims
 - guaranteed speedup claims
+- LKML submission at this stage
 
 ## Build Benchmark
 
 ```bash
-gcc -O2 -Wall -pthread -o kvio_bench bench/kvio_bench.c
+gcc -O2 -Wall -pthread -Iinclude -o kairo_bench bench/kairo_bench.c
 ```
 
 Or:
@@ -145,25 +152,29 @@ Or:
 ## Run Baseline
 
 ```bash
-./scripts/run_baseline.sh /mnt/nvme/kvio.test nvme0n1
+./scripts/run_baseline.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
-## Run KV-IO POC
+## Run Kairo POC
 
 ```bash
 ./scripts/set_mq_deadline.sh nvme0n1
-./scripts/run_kvio_poc.sh /mnt/nvme/kvio.test nvme0n1
+./scripts/run_kairo_poc.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
 ## Repository Layout
 
-- [docs/architecture.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/architecture.md)
-- [docs/aggressive_poc_plan.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/aggressive_poc_plan.md)
-- [docs/kernel_patch_plan.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/kernel_patch_plan.md)
-- [docs/benchmark_plan.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/benchmark_plan.md)
-- [docs/api_hints.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/api_hints.md)
-- [docs/storage_semantics.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/storage_semantics.md)
-- [docs/placement_lifetime_hints.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/placement_lifetime_hints.md)
-- [include/kvio_hints.h](/C:/Users/ManishKL/Documents/Playground/kv-io/include/kvio_hints.h)
-- [kernel/patches/README.md](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/patches/README.md)
-- [bench/README.md](/C:/Users/ManishKL/Documents/Playground/kv-io/bench/README.md)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/aggressive_poc_plan.md`](docs/aggressive_poc_plan.md)
+- [`docs/kernel_patch_plan.md`](docs/kernel_patch_plan.md)
+- [`docs/benchmark_plan.md`](docs/benchmark_plan.md)
+- [`docs/api_hints.md`](docs/api_hints.md)
+- [`docs/storage_semantics.md`](docs/storage_semantics.md)
+- [`docs/placement_lifetime_hints.md`](docs/placement_lifetime_hints.md)
+- [`include/kairo_hints.h`](include/kairo_hints.h)
+- [`kernel/patches/README.md`](kernel/patches/README.md)
+- [`bench/README.md`](bench/README.md)
+
+## Current Project Description
+
+**Kairo is an internal Linux-kernel RFC/POC for AI KV-cache-aware block I/O, prioritizing decode-critical reads and shaping generic NVMe SSD traffic for inference-like workloads.**
