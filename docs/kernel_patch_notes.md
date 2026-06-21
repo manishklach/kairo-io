@@ -8,6 +8,12 @@ The first experimental kernel patch targets:
 
 It is written against the Linux 6.8.12 `mq-deadline` structure found locally in the workspace.
 
+Local validation status:
+
+- `kernel/patches/0001-rfc-kairo-mq-deadline-decode-priority.patch` was checked against a Linux 6.8.12 source tree
+- the patch applies cleanly with `git apply --check`
+- a focused build of `block/mq-deadline.o` completed after validating the Kairo sysfs attribute plumbing
+
 ## Classification Method
 
 The patch uses request `ioprio` as a temporary local classification mechanism:
@@ -37,18 +43,25 @@ The patch does not replace the scheduler’s existing write-starvation logic. It
 
 ## Stats
 
-The first patch keeps minimal internal counters only:
+The first patch exports a small set of `mq-deadline` iosched controls and counters for local validation:
+
+- `kairo_enable`
+- `kairo_decode_budget`
+- `kairo_decode_dispatches`
+- `kairo_normal_dispatches`
+- `kairo_starvation_escapes`
+
+These are intended for local inspection through `/sys/block/<dev>/queue/iosched/` and for collection by `scripts/collect_block_stats.sh`.
+
+Internally, the patch tracks:
 
 - `kairo_decode_dispatches`
 - `kairo_normal_dispatches`
-- `kairo_write_starvation_escapes`
-
-These counters are documented for local inspection and future export, but the first patch does not require a full sysfs or debugfs plumbing pass.
+- `kairo_starvation_escapes`
 
 ## Known Limitations
 
 - classification depends on local `ioprio` conventions
 - decode detection is only approximate for the POC
 - prefetch and eviction are not fully handled in the first patch
-- counters are internal only
 - the patch is intended for local validation, not a permanent interface
