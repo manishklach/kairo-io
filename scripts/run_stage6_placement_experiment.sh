@@ -225,7 +225,6 @@ generate_summary() {
   local case_dir="$2"
   local bench_log="$case_dir/bench.log"
   local summary_file="$case_dir/summary.log"
-  local extract
 
   extract() {
     local key="$1"
