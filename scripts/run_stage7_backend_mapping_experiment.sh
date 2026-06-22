@@ -250,7 +250,6 @@ collect_csv() {
   for case_dir in "$RESULTS_DIR"/*/; do
     local summary="$case_dir/summary.log"
     [[ -f "$summary" ]] || continue
-    local cn; cn="$(basename "$case_dir")"
     local row=""
     IFS=',' read -ra hdrs <<< "$csv_header"
     for h in "${hdrs[@]}"; do
