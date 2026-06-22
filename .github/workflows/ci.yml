@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - codex/**
+      - 'codex/**'
   pull_request:
 
 jobs:
@@ -28,6 +28,7 @@ jobs:
   patch-apply:
     runs-on: ubuntu-24.04
     env:
+      LINUX_REMOTE: https://github.com/gregkh/linux.git
       LINUX_REF: v6.8.12
       LINUX_CACHE_DIR: ${{ github.workspace }}/.cache/linux-6.8.12
     steps:
@@ -47,29 +48,25 @@ jobs:
           if [[ ! -d "$LINUX_CACHE_DIR/.git" ]]; then
             mkdir -p "$LINUX_CACHE_DIR"
             git init "$LINUX_CACHE_DIR"
-            git -C "$LINUX_CACHE_DIR" remote add origin https://github.com/torvalds/linux.git
+            git -C "$LINUX_CACHE_DIR" remote add origin "$LINUX_REMOTE"
             git -C "$LINUX_CACHE_DIR" config core.sparseCheckout true
             cat > "$LINUX_CACHE_DIR/.git/info/sparse-checkout" <<'EOF'
-block/
-drivers/nvme/host/
-fs/
-include/
-io_uring/
-mm/
-EOF
+            block/
+            drivers/nvme/host/
+            fs/
+            include/
+            io_uring/
+            mm/
+            EOF
           fi
           git -C "$LINUX_CACHE_DIR" fetch --depth 1 origin "$LINUX_REF"
           git -C "$LINUX_CACHE_DIR" checkout --force FETCH_HEAD
 
-      - name: Check patch stack applies on Linux 6.8.12
+      - name: Check foundation patch stack on Linux 6.8.12
         shell: bash
         run: |
           set -euo pipefail
           linux_tree="$RUNNER_TEMP/linux-6.8.12-check"
           rm -rf "$linux_tree"
           cp -R "$LINUX_CACHE_DIR" "$linux_tree"
-          find kernel/patches -maxdepth 1 -type f -name '*.patch' | sort | while read -r patch; do
-            echo "[ci] checking $(basename "$patch")"
-            git -C "$linux_tree" apply --check "$GITHUB_WORKSPACE/$patch"
-            git -C "$linux_tree" apply "$GITHUB_WORKSPACE/$patch"
-          done
+          "$GITHUB_WORKSPACE/scripts/validate_patch_stack.sh" "$linux_tree"
