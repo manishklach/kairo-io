@@ -39,17 +39,17 @@ index 2d26bef..9a2c478 100755
  		goto unlock;
 +	}
  
-	/*
-	 * Next, dispatch requests in priority order. Ignore lower priority
-	 * requests if any higher priority requests are pending.
-	 * Kairo decode and Kairo prefetch already had their opportunity above,
-	 * so keep the normal RT/BE/IDLE mq-deadline order for all remaining
-	 * traffic, including non-Kairo RT requests.
-	 */
-	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
-		rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
-		if (rq || dd_queued(dd, prio))
-			break;
+ /*
+  * Next, dispatch requests in priority order. Ignore lower priority
+  * requests if any higher priority requests are pending.
+  * Kairo decode and Kairo prefetch already had their opportunity above,
+  * so keep the normal RT/BE/IDLE mq-deadline order for all remaining
+  * traffic, including non-Kairo RT requests.
+  */
+ for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
+ 	rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
+ 	if (rq || dd_queued(dd, prio))
+ 		break;
 @@ -797,16 +824,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	}
  
