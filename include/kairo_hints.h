@@ -45,6 +45,14 @@ enum kairo_semantic_mode {
     KAIRO_SEMANTIC_EPHEMERAL_RECOMPUTABLE = 3,
 };
 
+enum kairo_backend_mode {
+    KAIRO_BACKEND_MODE_NONE = 0,
+    KAIRO_BACKEND_MODE_GENERIC,
+    KAIRO_BACKEND_MODE_STREAMS,
+    KAIRO_BACKEND_MODE_FDP,
+    KAIRO_BACKEND_MODE_ZNS,
+};
+
 enum kairo_lifetime_class_user {
     KAIRO_USER_LIFE_NONE = 0,
     KAIRO_USER_LIFE_SHORT,
@@ -113,6 +121,23 @@ static inline const char *kairo_semantic_mode_name(enum kairo_semantic_mode mode
         return "ephemeral-recomputable";
     default:
         return "normal";
+    }
+}
+
+static inline const char *kairo_backend_mode_name(enum kairo_backend_mode mode)
+{
+    switch (mode) {
+    case KAIRO_BACKEND_MODE_GENERIC:
+        return "generic";
+    case KAIRO_BACKEND_MODE_STREAMS:
+        return "streams";
+    case KAIRO_BACKEND_MODE_FDP:
+        return "fdp";
+    case KAIRO_BACKEND_MODE_ZNS:
+        return "zns";
+    case KAIRO_BACKEND_MODE_NONE:
+    default:
+        return "none";
     }
 }
 

@@ -166,6 +166,71 @@ for name in "${required_stage6_sysfs_names[@]}"; do
     fail "missing Stage 6 sysfs counter $name in broad patch 0009"
 done
 
+# Stage 7: verify backend mapping symbols in broad patch 0008
+required_stage7_symbols=(
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:enum kairo_backend_class"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:struct kairo_backend_hint"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:kairo_backend_class_from_request"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:kairo_backend_hint_from_request"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_prepare_backend_hint"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_apply_backend_hint"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_streams_supported"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_fdp_supported"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_zns_supported"
+)
+
+for entry in "${required_stage7_symbols[@]}"; do
+  patch="${entry%%:*}"
+  symbol="${entry#*:}"
+  grep -q "$symbol" "$patch" || fail "missing Stage 7 symbol $symbol in $(basename "$patch")"
+done
+
+# Stage 7: verify backend mapping scaffold counters in broad patch 0009
+required_stage7_sysfs_names=(
+  "kairo_backend_mapping_attempts"
+  "kairo_backend_noop_fallbacks"
+  "kairo_backend_stream_hints"
+  "kairo_backend_fdp_hints"
+  "kairo_backend_zns_hints"
+  "kairo_backend_short_lived"
+  "kairo_backend_session_local"
+  "kairo_backend_model_local"
+  "kairo_backend_recomputable"
+  "kairo_backend_persistent"
+)
+
+for name in "${required_stage7_sysfs_names[@]}"; do
+  grep -q "$name" "$PATCH_DIR/0009-rfc-kairo-sysfs-debug-counters.patch" || \
+    fail "missing Stage 7 sysfs counter $name in broad patch 0009"
+done
+
+# Stage 7.5: verify experiment harness
+stage7_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 7: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage7_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 7: missing file: $1"
+}
+
+R7SE="$SCRIPT_DIR/run_stage7_backend_mapping_experiment.sh"
+P7SP="$SCRIPT_DIR/parse_stage7_backend_summary.py"
+DOC7="$REPO_ROOT/docs/stage7_generic_nvme_backend_mapping.md"
+
+stage7_file_exists "$R7SE"
+stage7_file_exists "$P7SP"
+stage7_file_exists "$DOC7"
+stage7_has_pattern "$R7SE" "results/stage7"
+stage7_has_pattern "$R7SE" "block-device"
+stage7_has_pattern "$P7SP" "--csv"
+stage7_has_pattern "$P7SP" "--pretty"
+stage7_has_pattern "$KB" "backend-mode"
+stage7_has_pattern "$KB" "backend_mode="
+stage7_has_pattern "$KB" "backend_class="
+stage7_has_pattern "$DOC7" "backend class"
+stage7_has_pattern "$DOC7" "KAIRO_BACKEND_NONE"
+
 required_sysfs_names=(
   "kairo_enable"
   "kairo_decode_budget"

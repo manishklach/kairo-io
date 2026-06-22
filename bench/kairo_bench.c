@@ -82,6 +82,7 @@ struct kairo_config {
     unsigned int placement_groups;
     uint32_t lifetime_class;
     bool recompute_ok;
+    enum kairo_backend_mode backend_mode;
 };
 
 struct kairo_stats {
@@ -272,6 +273,23 @@ static enum kairo_semantic_mode parse_semantic_mode(const char *value)
     exit(EXIT_FAILURE);
 }
 
+static enum kairo_backend_mode parse_backend_mode(const char *value)
+{
+    if (strcmp(value, "none") == 0)
+        return KAIRO_BACKEND_MODE_NONE;
+    if (strcmp(value, "generic") == 0)
+        return KAIRO_BACKEND_MODE_GENERIC;
+    if (strcmp(value, "streams") == 0)
+        return KAIRO_BACKEND_MODE_STREAMS;
+    if (strcmp(value, "fdp") == 0)
+        return KAIRO_BACKEND_MODE_FDP;
+    if (strcmp(value, "zns") == 0)
+        return KAIRO_BACKEND_MODE_ZNS;
+
+    fprintf(stderr, "invalid backend-mode: %s (expected none|generic|streams|fdp|zns)\n", value);
+    exit(EXIT_FAILURE);
+}
+
 static uint32_t parse_lifetime(const char *value)
 {
     if (strcmp(value, "short") == 0)
@@ -323,6 +341,7 @@ static void usage(const char *prog)
             "  --hint-mode <name>        ioprio|rwf|both (default: ioprio)\n"
             "  --semantic-mode <name>    normal|ephemeral|recomputable|\n"
             "                            ephemeral-recomputable\n"
+            "  --backend-mode <name>     none|generic|streams|fdp|zns\n"
             "  --random-read             Default mode\n"
             "  --sequential-read         Disable random read placement\n"
             "  --buffered                Disable O_DIRECT\n",
@@ -481,6 +500,7 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->placement_groups = 1;
     cfg->lifetime_class = KAIRO_USER_LIFE_NONE;
     cfg->recompute_ok = false;
+    cfg->backend_mode = KAIRO_BACKEND_MODE_NONE;
 }
 
 static void apply_mode_defaults(struct kairo_config *cfg)
@@ -1175,6 +1195,63 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("fixed_session_id=%u\n", cfg->fixed_session_id);
     printf("fixed_cache_pool_id=%u\n", cfg->fixed_cache_pool_id);
     printf("fixed_placement_group=%u\n", cfg->fixed_placement_group);
+    printf("backend_mode=%s\n", kairo_backend_mode_name(cfg->backend_mode));
+
+    /* Compute backend mapping metadata for --backend-mode */
+    {
+        unsigned int stream_id = 0;
+        unsigned int fdp_placement_id = 0;
+        unsigned int zone_hint = 0;
+        bool noop_fallback = (cfg->backend_mode == KAIRO_BACKEND_MODE_NONE);
+        const char *backend_class = "KAIRO_BACKEND_NONE";
+
+        if (cfg->backend_mode != KAIRO_BACKEND_MODE_NONE) {
+            switch (cfg->lifetime_class) {
+            case KAIRO_USER_LIFE_SHORT:
+                backend_class = "KAIRO_BACKEND_SHORT_LIVED";
+                break;
+            case KAIRO_USER_LIFE_SESSION:
+                backend_class = "KAIRO_BACKEND_SESSION_LOCAL";
+                break;
+            case KAIRO_USER_LIFE_MODEL:
+                backend_class = "KAIRO_BACKEND_MODEL_LOCAL";
+                break;
+            case KAIRO_USER_LIFE_PERSISTENT:
+                backend_class = "KAIRO_BACKEND_PERSISTENT";
+                break;
+            default:
+                if (cfg->recompute_ok)
+                    backend_class = "KAIRO_BACKEND_RECOMPUTABLE";
+                break;
+            }
+            if (cfg->recompute_ok && cfg->lifetime_class == KAIRO_USER_LIFE_NONE)
+                backend_class = "KAIRO_BACKEND_RECOMPUTABLE";
+        }
+
+        switch (cfg->backend_mode) {
+        case KAIRO_BACKEND_MODE_STREAMS:
+            stream_id = cfg->placement_groups ? cfg->placement_groups : cfg->cache_pools;
+            noop_fallback = false;
+            break;
+        case KAIRO_BACKEND_MODE_FDP:
+            fdp_placement_id = cfg->cache_pools ? cfg->cache_pools : cfg->placement_groups;
+            noop_fallback = false;
+            break;
+        case KAIRO_BACKEND_MODE_ZNS:
+            zone_hint = (unsigned int)cfg->lifetime_class;
+            noop_fallback = false;
+            break;
+        default:
+            break;
+        }
+
+        printf("backend_class=%s\n", backend_class);
+        printf("stream_id=%u\n", stream_id);
+        printf("fdp_placement_id=%u\n", fdp_placement_id);
+        printf("zone_hint=%u\n", zone_hint);
+        printf("backend_noop_fallback=%s\n", noop_fallback ? "true" : "false");
+    }
+
     printf("decode_total_reads=%" PRIu64 "\n", snapshot.total_decode_reads);
     printf("prefetch_total_reads=%" PRIu64 "\n", snapshot.total_prefetch_reads);
     printf("write_total_ops=%" PRIu64 "\n", snapshot.total_writes);
@@ -1261,6 +1338,7 @@ int main(int argc, char **argv)
         {"recompute-ok", no_argument, NULL, 14},
         {"cache-pools", required_argument, NULL, 15},
         {"placement-groups", required_argument, NULL, 16},
+        {"backend-mode", required_argument, NULL, 17},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -1347,6 +1425,9 @@ int main(int argc, char **argv)
             break;
         case 16:
             cfg.placement_groups = (unsigned int)parse_size(optarg, "placement-groups");
+            break;
+        case 17:
+            cfg.backend_mode = parse_backend_mode(optarg);
             break;
         case 4:
             cfg.stride_blocks = (unsigned int)parse_size(optarg, "stride-blocks");

@@ -9,7 +9,7 @@
 | prefetch deadlines | `0005` | implemented | compile-targeted Linux 6.8.x policy for decode, prefetch, prefill, and evict scheduling |
 | ephemeral semantics | `0006` | scaffolded | local RFC semantic flags for recomputable, ephemeral, avoid-pagecache, and cleanup intent |
 | placement/lifetime | `0007` | implemented | model/session/lifetime metadata with helpers and synthetic defaults |
-| NVMe/ZNS/FDP mapping | `0008` | scaffolded | feature-detected mapping hooks with no-op fallback |
+| NVMe/ZNS/FDP mapping | `0008` | implemented | generic backend mapping scaffold: `kairo_backend_class`, `kairo_backend_hint`, feature-detected NVMe hooks with no-op fallback; benchmark-visible via `--backend-mode` |
 | debug counters | `0009` | implemented | compile-targeted Linux 6.8.x sysfs counters and tunables; Stage 6 scaffold placement/lifetime counters |
 
 ## Stage 6.5 Status
@@ -20,6 +20,18 @@
 | Summary parser | implemented | `parse_stage6_placement_summary.py` with `--csv` and `--pretty` output, counter delta columns |
 | Counter coverage | updated | `collect_kairo_counters.sh` includes both naming sets for Stage 6 counters |
 
+## Stage 7 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Generic backend mapping scaffold | implemented | `enum kairo_backend_class`, `struct kairo_backend_hint`, helpers, mapping from Stage 6 lifetime metadata |
+| NVMe feature-detected hooks | scaffolded | `nvme_kairo_streams_supported`, `nvme_kairo_fdp_supported`, `nvme_kairo_zns_supported` — all return false; `nvme_kairo_prepare_backend_hint` and `nvme_kairo_apply_backend_hint` are no-op safe |
+| Backend mapping counters | implemented | 10 scaffold counters in `mq-deadline.c` via `0009` |
+| Benchmark backend mode | implemented | `--backend-mode none|generic|streams|fdp|zns` with mapping output fields |
+| Experiment harness | implemented | `run_stage7_backend_mapping_experiment.sh` with five canonical cases |
+| Summary parser | implemented | `parse_stage7_backend_summary.py` with `--csv` and `--pretty` |
+| Counter coverage | updated | `collect_kairo_counters.sh` includes Stage 7 counters |
+
 ## Current Read
 
 The repo now has the shape of the full Kairo architecture, but the maturity is
@@ -27,8 +39,9 @@ intentionally uneven:
 
 - `0001`, `0002`, `0005`, and `0009` form the Linux 6.8.x compile-targeted foundation stack
 - `kernel/patches/foundation/0001` through `0004` are the preferred local apply/compile target
-- `0003`, `0006`, `0007`, and `0008` remain scaffold-heavy later stages
+- `0003`, `0006`, and `0007` remain scaffold-heavy earlier stages
 - `0004` remains an aggressive kernel RFC/POC path that still needs its own implement-then-validate cycle
+- `0008` is now a generic backend mapping scaffold with benchmark-visible output
 - the user-space harness can approximate decode, prefetch, prefill, eviction, and multisession pressure
 - the benchmark now supports merge-friendly and merge-hostile access patterns
 - the benchmark now also supports `--hint-mode ioprio|rwf|both` for Stage 4 experiments
@@ -47,6 +60,8 @@ intentionally uneven:
 - Kairo sysfs counters: dispatch, starvation escape, merge instrumentation, request-size histogram
 - Stage 5 semantic counters: ephemeral, recomputable, no-durability, avoid-pagecache, evict-cleanup
 - Stage 6 placement/lifetime scaffold counters: `kairo_placement_hints`, `kairo_lifetime_*_count`, `kairo_has_*_count`
+- Stage 7 backend mapping counters: `kairo_backend_mapping_attempts`, `kairo_backend_*_hints`, `kairo_backend_*_lived`/`_local`/`_persistent`
+- Stage 7 benchmark output: `backend_mode`, `backend_class`, `stream_id`, `fdp_placement_id`, `zone_hint`, `backend_noop_fallback`
 - counter deltas via `scripts/collect_kairo_counters.sh`
 
 ## What Needs Real Kernel Validation Next
@@ -55,5 +70,6 @@ intentionally uneven:
 - `0004` merge-bias interaction with real blk-merge decisions on Linux 6.8.x
 - `0003` end-to-end hint propagation from `kiocb` into block-layer metadata
 - `0006` semantics around direct I/O preference, cleanup, and page-cache pollution
-- `0008` feature detection and graceful fallback on generic NVMe SSDs
+- `0008` feature detection, backend class mapping, and graceful fallback on generic NVMe SSDs
 - Stage 6 placement/lifetime scaffold counter movement in a patched kernel
+- Stage 7 backend mapping scaffold counter movement in a patched kernel

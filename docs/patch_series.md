@@ -20,8 +20,8 @@ local apply/build target for Stage 1 and Stage 2 validation.
 | `0005` | prefetch deadlines | `mq-deadline` | separate prefetch urgency |
 | `0006` | ephemeral semantics | `fs`, `mm`, `block` | recomputable, ephemeral, avoid-pagecache, and cleanup semantics |
 | `0007` | placement/lifetime | `blk-mq`, `blk_types` | model/session/lifetime metadata with helpers and synthetic defaults |
-| `0008` | NVMe mapping | `drivers/nvme/host` | generic Streams/FDP/ZNS mapping hooks |
-| `0009` | observability | `mq-deadline`, `debugfs` | counters proving Kairo code paths: dispatch, merge instrumentation, request-size histogram |
+| `0008` | NVMe mapping | `blk_types`, `blk-mq`, `drivers/nvme/host` | generic backend mapping scaffold: `enum kairo_backend_class`, `struct kairo_backend_hint`, feature-detected NVMe hooks with no-op fallback; benchmark-visible via `--backend-mode` |
+| `0009` | observability | `mq-deadline`, `debugfs` | counters proving Kairo code paths: dispatch, merge instrumentation, request-size histogram; Stage 6 placement/lifetime counters; Stage 7 backend mapping counters |
 
 ## Design Themes
 
@@ -33,6 +33,7 @@ local apply/build target for Stage 1 and Stage 2 validation.
 - merge instrumentation should reveal whether decode/prefetch reads are coalescing successfully
 - model/session/lifetime hints should map to software grouping first and hardware features opportunistically
 - all feature-specific backends should degrade to safe no-op behavior on unsupported hardware
+- backend mapping (Stage 7) is a neutral class-based layer; NVMe-specific hooks are feature-detected and no-op unless detection succeeds
 
 ## Temporary Implementation Strategy
 
@@ -59,6 +60,29 @@ The repo now also carries a hardened Stage 6.5 harness:
 Stage 6.5 does not modify the foundation stack or add NVMe/FDP/ZNS mapping.
 It is a benchmark/experiment harness hardening pass.
 
+## Stage 7: Generic Backend Mapping Scaffold
+
+The repo now also carries a Stage 7 generic backend mapping layer:
+
+- `kernel/patches/0008` introduces `enum kairo_backend_class`,
+  `struct kairo_backend_hint`, and helper functions that convert Stage 6
+  placement/lifetime metadata into neutral backend classes.
+- Feature-detected NVMe hooks (`nvme_kairo_streams_supported()`,
+  `nvme_kairo_fdp_supported()`, `nvme_kairo_zns_supported()`) exist as
+  scaffold only — all return `false` until real detection is wired.
+- `nvme_kairo_prepare_backend_hint()` and `nvme_kairo_apply_backend_hint()`
+  prepare and apply backend hints; the apply function is currently a no-op.
+- `kernel/patches/0009` adds 10 backend mapping scaffold counters.
+- The benchmark supports `--backend-mode none|generic|streams|fdp|zns` and
+  prints mapping output fields (`backend_class`, `stream_id`, etc.).
+- `scripts/run_stage7_backend_mapping_experiment.sh` runs five canonical
+  backend mapping cases with structured `results/stage7/<timestamp>/` output.
+- `scripts/parse_stage7_backend_summary.py` parses summary logs with full
+  counter delta column support.
+
+Stage 7 does **not** claim physical data placement, stable UAPI, or
+LKML readiness. It is an RFC/POC scaffold for future backend wiring.
+
 ## Validation Focus
 
 Immediate validation remains centered on:
@@ -77,6 +101,8 @@ Immediate validation remains centered on:
 - how much of the Stage 4 scaffold should live in `kiocb` versus direct `bio` metadata
 - where Stage 5 semantic intent should be interpreted without undermining explicit durability operations
 - whether the request-size histogram is better served by debugfs snapshots
-- how much value generic NVMe Streams/FDP/ZNS mapping provides without workload-specific placement control
+- whether the generic `kairo_backend_class` abstraction maps usefully to real NVMe Streams/FDP/ZNS device capabilities
+- how backend detection via `nvme_kairo_streams_supported()` etc. should be wired (identify commands, feature bits)
+- whether physical placement through backend hooks provides measurable improvement over software-only grouping (Stage 6)
 - whether lifetime class should influence scheduler demotion priority
 - whether the scaffold placement/lifetime counters are useful without NVMe backend mapping

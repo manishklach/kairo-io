@@ -35,7 +35,18 @@ index 2d26bef..9a2c478 100755
 +	u64 kairo_recompute_ok_count;
 +	u64 kairo_has_model_id_count;
 +	u64 kairo_has_session_id_count;
-+	u64 kairo_has_cache_pool_count;
++		u64 kairo_has_cache_pool_count;
++	/* Stage 7: backend mapping scaffold counters */
++	u64 kairo_backend_mapping_attempts;
++	u64 kairo_backend_noop_fallbacks;
++	u64 kairo_backend_stream_hints;
++	u64 kairo_backend_fdp_hints;
++	u64 kairo_backend_zns_hints;
++	u64 kairo_backend_short_lived;
++	u64 kairo_backend_session_local;
++	u64 kairo_backend_model_local;
++	u64 kairo_backend_recomputable;
++	u64 kairo_backend_persistent;
  	unsigned int kairo_decode_budget_used;
  	u32 kairo_prefetch_budget_used;
  
@@ -347,6 +358,97 @@ index 2d26bef..9a2c478 100755
 +			  (unsigned long long)dd->kairo_has_cache_pool_count);
 +}
 +
++/* Stage 7: backend mapping scaffold counters */
++static ssize_t deadline_kairo_backend_mapping_attempts_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_mapping_attempts);
++}
++
++static ssize_t deadline_kairo_backend_noop_fallbacks_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_noop_fallbacks);
++}
++
++static ssize_t deadline_kairo_backend_stream_hints_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_stream_hints);
++}
++
++static ssize_t deadline_kairo_backend_fdp_hints_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_fdp_hints);
++}
++
++static ssize_t deadline_kairo_backend_zns_hints_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_zns_hints);
++}
++
++static ssize_t deadline_kairo_backend_short_lived_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_short_lived);
++}
++
++static ssize_t deadline_kairo_backend_session_local_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_session_local);
++}
++
++static ssize_t deadline_kairo_backend_model_local_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_model_local);
++}
++
++static ssize_t deadline_kairo_backend_recomputable_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_recomputable);
++}
++
++static ssize_t deadline_kairo_backend_persistent_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_backend_persistent);
++}
++
  #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
  static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
  {									\
@@ -449,5 +551,16 @@ index 2d26bef..9a2c478 100755
 +	DD_RO_ATTR(kairo_has_model_id_count),
 +	DD_RO_ATTR(kairo_has_session_id_count),
 +	DD_RO_ATTR(kairo_has_cache_pool_count),
++	/* Stage 7: backend mapping scaffold counters */
++	DD_RO_ATTR(kairo_backend_mapping_attempts),
++	DD_RO_ATTR(kairo_backend_noop_fallbacks),
++	DD_RO_ATTR(kairo_backend_stream_hints),
++	DD_RO_ATTR(kairo_backend_fdp_hints),
++	DD_RO_ATTR(kairo_backend_zns_hints),
++	DD_RO_ATTR(kairo_backend_short_lived),
++	DD_RO_ATTR(kairo_backend_session_local),
++	DD_RO_ATTR(kairo_backend_model_local),
++	DD_RO_ATTR(kairo_backend_recomputable),
++	DD_RO_ATTR(kairo_backend_persistent),
  	__ATTR_NULL
  };

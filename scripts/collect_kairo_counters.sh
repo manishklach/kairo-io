@@ -97,6 +97,18 @@ counter_names=(
   kairo_model_lived_requests
   kairo_persistent_lived_requests
   kairo_recompute_ok_requests
+
+  # Stage 7: backend mapping scaffold counters
+  kairo_backend_mapping_attempts
+  kairo_backend_noop_fallbacks
+  kairo_backend_stream_hints
+  kairo_backend_fdp_hints
+  kairo_backend_zns_hints
+  kairo_backend_short_lived
+  kairo_backend_session_local
+  kairo_backend_model_local
+  kairo_backend_recomputable
+  kairo_backend_persistent
 )
 
 for name in "${counter_names[@]}"; do

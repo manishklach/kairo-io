@@ -126,13 +126,28 @@ The foundation stack currently covers Stage 1 and Stage 2 only.
 
 ## Stage 7
 
-- Broad RFC/POC patches involved: `0008`
+- Broad RFC/POC patches involved: `0008`, `0009`
+- Userspace header: `include/kairo_hints.h` (`enum kairo_backend_mode`)
+- Benchmark: `kairo_bench.c` (`--backend-mode` option, mapping output fields)
+- Scripts: `scripts/run_stage7_backend_mapping_experiment.sh`,
+          `scripts/parse_stage7_backend_summary.py`
+- Docs: `docs/stage7_generic_nvme_backend_mapping.md`
 - What should compile:
-  - feature-detected NVMe mapping hooks
+  - `enum kairo_backend_class`, `struct kairo_backend_hint`, helpers
+  - feature-detected NVMe mapping hooks (no-op fallback when absent)
+  - backend mapping scaffold counters in `mq-deadline.c`
 - What should be measurable:
-  - backend differentiation on hardware that exposes useful generic features
+  - backend class mapping from Stage 6 lifetime metadata
+  - benchmark `--backend-mode none|generic|streams|fdp|zns`
+  - sysfs scaffold counters: `kairo_backend_mapping_attempts`,
+    `kairo_backend_*_hints`, `kairo_backend_*_lived`/`_local`/`_persistent`
+  - benchmark output fields: `backend_mode`, `backend_class`, `stream_id`,
+    `fdp_placement_id`, `zone_hint`, `backend_noop_fallback`
 - What is still RFC-only:
-  - effectiveness of Streams/FDP/ZNS mapping on target devices
+  - real NVMe hardware placement (Streams, FDP, ZNS)
+  - physical backend mapping effectiveness on target devices
+  - detection of NVMe feature bits via identify commands
+  - application of backend hints to NVMe commands
 
 ## Stage 8
 
