@@ -8,9 +8,9 @@
 | large-block coalescing | `0004` | implemented | merge-bias helpers, per-request flags, blk-merge instrumentation hooks |
 | prefetch deadlines | `0005` | implemented | compile-targeted Linux 6.8.x policy for decode, prefetch, prefill, and evict scheduling |
 | ephemeral semantics | `0006` | scaffolded | local RFC semantic flags for recomputable, ephemeral, avoid-pagecache, and cleanup intent |
-| placement/lifetime | `0007` | scaffolded | model/session/cache-pool metadata |
+| placement/lifetime | `0007` | implemented | model/session/lifetime metadata with helpers and synthetic defaults |
 | NVMe/ZNS/FDP mapping | `0008` | scaffolded | feature-detected mapping hooks with no-op fallback |
-| debug counters | `0009` | implemented | compile-targeted Linux 6.8.x sysfs counters and tunables for the foundation stack |
+| debug counters | `0009` | implemented | compile-targeted Linux 6.8.x sysfs counters and tunables; Stage 6 scaffold placement/lifetime counters |
 
 ## Current Read
 
@@ -25,6 +25,9 @@ intentionally uneven:
 - the benchmark now supports merge-friendly and merge-hostile access patterns
 - the benchmark now also supports `--hint-mode ioprio|rwf|both` for Stage 4 experiments
 - the benchmark now also supports `--semantic-mode` for Stage 5 cache-semantic experiments
+- the benchmark now also supports `--model-id`, `--session-id`, `--cache-pool-id`,
+  `--placement-group`, `--lifetime`, `--recompute-ok`, `--cache-pools`, and
+  `--placement-groups` for Stage 6 placement/lifetime experiments
 
 ## What We Can Measure Today
 
@@ -35,6 +38,7 @@ intentionally uneven:
 - `rwf_ephemeral_*`, `rwf_recompute_*`, `rwf_no_durability_*`, `rwf_avoid_pagecache_*`
 - Kairo sysfs counters: dispatch, starvation escape, merge instrumentation, request-size histogram
 - Stage 5 semantic counters: ephemeral, recomputable, no-durability, avoid-pagecache, evict-cleanup
+- Stage 6 placement/lifetime scaffold counters: `kairo_placement_hints`, `kairo_lifetime_*_count`, `kairo_has_*_count`
 - counter deltas via `scripts/collect_kairo_counters.sh`
 
 ## What Needs Real Kernel Validation Next
@@ -44,3 +48,4 @@ intentionally uneven:
 - `0003` end-to-end hint propagation from `kiocb` into block-layer metadata
 - `0006` semantics around direct I/O preference, cleanup, and page-cache pollution
 - `0008` feature detection and graceful fallback on generic NVMe SSDs
+- Stage 6 placement/lifetime scaffold counter movement in a patched kernel

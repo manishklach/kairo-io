@@ -87,13 +87,25 @@ The foundation stack currently covers Stage 1 and Stage 2 only.
 
 ## Stage 6
 
-- Broad RFC/POC patches involved: `0007`
+- Broad RFC/POC patches involved: `0007`, `0009`
+- Userspace header: `include/kairo_hints.h` (placement structs and flags)
+- Benchmark: `kairo_bench.c` (placement CLI options and output fields)
+- Scripts: `scripts/run_stage6_placement_experiment.sh`,
+          `scripts/parse_stage6_placement_summary.py`
 - What should compile:
-  - placement and lifetime metadata carriage
+  - `enum kairo_lifetime_class`, `struct kairo_placement_hint`, helpers,
+    synthetic default init (`blk_mq_kairo_default_placement`)
+  - scaffold placement/lifetime counters in `mq-deadline.c`
 - What should be measurable:
   - software-only grouping experiments by model/session/cache pool
+  - benchmark `--lifetime`, `--recompute-ok`, `--cache-pool-id`,
+    `--placement-group`, `--cache-pools`, `--placement-groups`
+  - sysfs scaffold counters: `kairo_placement_hints`,
+    `kairo_lifetime_*_count`, `kairo_has_*_count`
 - What is still RFC-only:
   - stable mapping semantics through the stack
+  - NVMe Streams/FDP/ZNS mapping (deferred to Stage 7)
+  - scheduler policy changes based on lifetime class
 
 ## Stage 7
 

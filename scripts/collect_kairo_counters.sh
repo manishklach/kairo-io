@@ -76,6 +76,17 @@ counter_names=(
   kairo_no_durability_requests
   kairo_avoid_pagecache_requests
   kairo_evict_cleanup_requests
+
+  # Stage 6: placement/lifetime scaffold counters
+  kairo_placement_hints
+  kairo_lifetime_short_count
+  kairo_lifetime_session_count
+  kairo_lifetime_model_count
+  kairo_lifetime_persistent_count
+  kairo_recompute_ok_count
+  kairo_has_model_id_count
+  kairo_has_session_id_count
+  kairo_has_cache_pool_count
 )
 
 for name in "${counter_names[@]}"; do

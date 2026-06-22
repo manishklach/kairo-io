@@ -19,7 +19,7 @@ local apply/build target for Stage 1 and Stage 2 validation.
 | `0004` | large-block coalescing | `blk-merge`, `blk-mq` | merge-bias helpers, per-request merge flags, request-size observability |
 | `0005` | prefetch deadlines | `mq-deadline` | separate prefetch urgency |
 | `0006` | ephemeral semantics | `fs`, `mm`, `block` | recomputable, ephemeral, avoid-pagecache, and cleanup semantics |
-| `0007` | placement/lifetime | `blk-mq`, `nvme` | model/session/lifetime metadata |
+| `0007` | placement/lifetime | `blk-mq`, `blk_types` | model/session/lifetime metadata with helpers and synthetic defaults |
 | `0008` | NVMe mapping | `drivers/nvme/host` | generic Streams/FDP/ZNS mapping hooks |
 | `0009` | observability | `mq-deadline`, `debugfs` | counters proving Kairo code paths: dispatch, merge instrumentation, request-size histogram |
 
@@ -64,3 +64,5 @@ Immediate validation remains centered on:
 - where Stage 5 semantic intent should be interpreted without undermining explicit durability operations
 - whether the request-size histogram is better served by debugfs snapshots
 - how much value generic NVMe Streams/FDP/ZNS mapping provides without workload-specific placement control
+- whether lifetime class should influence scheduler demotion priority
+- whether the scaffold placement/lifetime counters are useful without NVMe backend mapping

@@ -5,30 +5,45 @@ Subject: [RFC/POC PATCH 7/9] block: add Kairo placement and lifetime hints
 
 Subsystem touched:
 - `include/linux/blk_types.h`
+- `include/linux/blk-mq.h`
 - `block/blk-mq.c`
-- `block/blk-core.c`
-- `drivers/nvme/host/core.c`
 
 New Kairo concept:
-- model/session/cache-pool/lifetime metadata that can group related KV-cache I/O
+- model/session/cache-pool/placement-group/lifetime metadata that can group
+  related KV-cache I/O and inform future backend placement decisions
 
 Relation to AI KV-cache traffic:
 - session/model scoping and short-lived cache pools are central to the original
   Kairo vision and can influence both scheduling and backend placement
+- lifetime class distinguishes short-lived session data from longer-lived model
+  caches and persistent durable data
 
 Temporary implementation:
-- extend Kairo request hints with a placement structure and default lifetimes
+- extend Kairo request hints with a `kairo_placement_hint` structure
+- add helpers to query placement metadata from a request
+- add benchmark-side controls for model/session/cache-pool/placement-group/lifetime
 
 Still to validate:
 - whether software-only grouping is enough before mapping to hardware features
+- whether lifetime class should influence scheduler demotion priority
 
 diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index f190ccd..d20ef19 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
 @@
++enum kairo_io_class {
++	KAIRO_IO_NONE = 0,
++	KAIRO_IO_DECODE_READ,
++	KAIRO_IO_PREFETCH_READ,
++	KAIRO_IO_PREFILL_WRITE,
++	KAIRO_IO_EVICT,
++	KAIRO_IO_NORMAL,
++};
++
 +enum kairo_lifetime_class {
-+	KAIRO_LIFE_SHORT = 0,
++	KAIRO_LIFE_NONE = 0,
++	KAIRO_LIFE_SHORT,
 +	KAIRO_LIFE_SESSION,
 +	KAIRO_LIFE_MODEL,
 +	KAIRO_LIFE_PERSISTENT,
@@ -38,8 +53,9 @@ index f190ccd..d20ef19 100644
 +	u32 model_id;
 +	u32 session_id;
 +	u32 cache_pool_id;
-+	u32 lifetime_class;
-+	u32 recompute_ok;
++	u32 placement_group;
++	enum kairo_lifetime_class lifetime_class;
++	bool recompute_ok;
 +};
 +
  struct kairo_request_hints {
@@ -54,38 +70,79 @@ index f190ccd..d20ef19 100644
  	u32 flags;
  };
 
- diff --git a/block/blk-mq.c b/block/blk-mq.c
- index 1297dde..8ed990a 100644
- --- a/block/blk-mq.c
- +++ b/block/blk-mq.c
- @@
++/*
++ * Intended future use:
++ * - group KV-cache writes by model_id for software grouping
++ * - separate short-lived session cache from longer-lived model cache
++ * - avoid mixing recomputable cache with ordinary durable file data
++ * - enable future generic NVMe Streams/FDP/ZNS placement decisions
++ *   (KAIRO_LIFE_SHORT      -> short-lived placement group
++ *    KAIRO_LIFE_SESSION    -> session-local placement group
++ *    KAIRO_LIFE_MODEL      -> model-local placement group
++ *    KAIRO_LIFE_PERSISTENT -> no special handling)
++ */
++
++static inline bool kairo_has_model_id(struct request *rq)
++{
++	return rq->kairo_hints.placement.model_id != 0;
++}
++
++static inline bool kairo_has_session_id(struct request *rq)
++{
++	return rq->kairo_hints.placement.session_id != 0;
++}
++
++static inline bool kairo_has_cache_pool(struct request *rq)
++{
++	return rq->kairo_hints.placement.cache_pool_id != 0;
++}
++
++static inline bool kairo_is_short_lived(struct request *rq)
++{
++	return rq->kairo_hints.placement.lifetime_class == KAIRO_LIFE_SHORT;
++}
++
++static inline bool kairo_is_session_lived(struct request *rq)
++{
++	return rq->kairo_hints.placement.lifetime_class == KAIRO_LIFE_SESSION;
++}
++
++static inline bool kairo_is_model_lived(struct request *rq)
++{
++	return rq->kairo_hints.placement.lifetime_class == KAIRO_LIFE_MODEL;
++}
++
++static inline bool kairo_is_persistent_lived(struct request *rq)
++{
++	return rq->kairo_hints.placement.lifetime_class == KAIRO_LIFE_PERSISTENT;
++}
++
++static inline bool kairo_recompute_ok(struct request *rq)
++{
++	return rq->kairo_hints.placement.recompute_ok;
++}
++
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index 1297dde..8ed990a 100644
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@
 +static void blk_mq_kairo_default_placement(struct request *rq)
 +{
 +	struct kairo_placement_hint *hint = &rq->kairo_hints.placement;
 +
-+	hint->lifetime_class = KAIRO_LIFE_SHORT;
-+	hint->recompute_ok = !!(rq->kairo_hints.flags & BIT(4));
++	/*
++	 * RFC/POC: set conservative defaults.
++	 * model_id, session_id, cache_pool_id, placement_group default to 0.
++	 * lifetime_class defaults to KAIRO_LIFE_NONE.
++	 */
++	hint->lifetime_class = KAIRO_LIFE_NONE;
++	hint->recompute_ok = false;
 +}
 @@
-  void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
-  {
-  	blk_mq_kairo_init_request(rq);
-  	blk_mq_kairo_prefetch_defaults(rq);
+ void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
+ {
+ 	blk_mq_kairo_init_request(rq);
+ 	blk_mq_kairo_prefetch_defaults(rq);
 +	blk_mq_kairo_default_placement(rq);
-  }
-
- diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
- index 8a710cc..6d201df 100644
- --- a/drivers/nvme/host/core.c
- +++ b/drivers/nvme/host/core.c
- @@
-+static void nvme_kairo_prepare_req(struct request *rq)
-+{
-+	/*
-+	 * RFC/POC:
-+	 * KAIRO_LIFE_SHORT      -> short-lived placement group
-+	 * KAIRO_LIFE_SESSION    -> session-local placement group
-+	 * KAIRO_LIFE_MODEL      -> model-local placement group
-+	 * KAIRO_LIFE_PERSISTENT -> no special handling
-+	 */
-+}
+ }

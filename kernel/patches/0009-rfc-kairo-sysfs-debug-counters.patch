@@ -1,7 +1,46 @@
+From 9999999999990000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Sun, 21 Jun 2026 14:30:00 -0700
+Subject: [RFC/POC PATCH 9/9] mq-deadline: Kairo sysfs debug counters
+
+Subsystem touched:
+- `block/mq-deadline.c`
+
+Kairo concept:
+- tunable knob: `kairo_enable` (enable/disable Kairo scheduling)
+- tunable knobs: `kairo_decode_budget`, `kairo_prefetch_budget`,
+  `kairo_prefetch_deadline_us`
+- read-only counters: decode/prefetch/evict dispatches, demotions, merge
+  instrumentation, merged requests, request-size histogram, placement/lifetime
+  scaffold counters
+
+Still to validate:
+- whether the per-request merge-instrumentation flags can be set without
+  significant blk-merge overhead
+- whether placement/lifetime counters measurably impact I/O under controlled
+  benchmark runs
+
 diff --git a/block/mq-deadline.c b/block/mq-deadline.c
 index 2d26bef..9a2c478 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
+@@ -108,9 +115,20 @@ struct deadline_data {
+ 	u64 kairo_starvation_escapes;
++	/* Stage 6: placement/lifetime scaffold counters */
++	u64 kairo_placement_hints;
++	u64 kairo_lifetime_short_count;
++	u64 kairo_lifetime_session_count;
++	u64 kairo_lifetime_model_count;
++	u64 kairo_lifetime_persistent_count;
++	u64 kairo_recompute_ok_count;
++	u64 kairo_has_model_id_count;
++	u64 kairo_has_session_id_count;
++	u64 kairo_has_cache_pool_count;
+ 	unsigned int kairo_decode_budget_used;
+ 	u32 kairo_prefetch_budget_used;
+ 
+ 	/*
+ 	 * settings that change how the i/o scheduler behaves
 @@ -615,17 +617,21 @@ static bool dd_kairo_has_decode_read(struct deadline_data *dd)
  static bool dd_kairo_should_demote_prefill(struct deadline_data *dd,
  					   struct request *rq)
@@ -112,7 +151,7 @@ index 2d26bef..9a2c478 100755
 @@ -1186,6 +1221,137 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
  #undef SHOW_INT
  #undef SHOW_JIFFIES
- 
+
 +static ssize_t deadline_kairo_enable_show(struct elevator_queue *e, char *page)
 +{
 +	return sysfs_emit(page, "%d\n", kairo_enable);
@@ -226,13 +265,95 @@ index 2d26bef..9a2c478 100755
 +			  (unsigned long long)dd->kairo_starvation_escapes);
 +}
 +
++/* Stage 6: placement/lifetime scaffold counters */
++static ssize_t deadline_kairo_placement_hints_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_placement_hints);
++}
++
++static ssize_t deadline_kairo_lifetime_short_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_lifetime_short_count);
++}
++
++static ssize_t deadline_kairo_lifetime_session_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_lifetime_session_count);
++}
++
++static ssize_t deadline_kairo_lifetime_model_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_lifetime_model_count);
++}
++
++static ssize_t deadline_kairo_lifetime_persistent_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_lifetime_persistent_count);
++}
++
++static ssize_t deadline_kairo_recompute_ok_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_recompute_ok_count);
++}
++
++static ssize_t deadline_kairo_has_model_id_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_has_model_id_count);
++}
++
++static ssize_t deadline_kairo_has_session_id_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_has_session_id_count);
++}
++
++static ssize_t deadline_kairo_has_cache_pool_count_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++
++	return sysfs_emit(page, "%llu\n",
++			  (unsigned long long)dd->kairo_has_cache_pool_count);
++}
++
  #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
  static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
  {									\
 @@ -1217,8 +1383,70 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
  #undef STORE_INT
  #undef STORE_JIFFIES
- 
+
 +static ssize_t deadline_kairo_enable_store(struct elevator_queue *e,
 +					   const char *page, size_t count)
 +{
@@ -297,7 +418,7 @@ index 2d26bef..9a2c478 100755
  	__ATTR(name, 0644, deadline_##name##_show, deadline_##name##_store)
 +#define DD_RO_ATTR(name) \
 +	__ATTR(name, 0444, deadline_##name##_show, NULL)
- 
+
  static struct elv_fs_entry deadline_attrs[] = {
  	DD_ATTR(read_expire),
 @@ -1228,6 +1456,22 @@ static struct elv_fs_entry deadline_attrs[] = {
@@ -318,6 +439,15 @@ index 2d26bef..9a2c478 100755
 +	DD_RO_ATTR(kairo_evict_demotions),
 +	DD_RO_ATTR(kairo_normal_dispatches),
 +	DD_RO_ATTR(kairo_starvation_escapes),
++	/* Stage 6: placement/lifetime scaffold counters */
++	DD_RO_ATTR(kairo_placement_hints),
++	DD_RO_ATTR(kairo_lifetime_short_count),
++	DD_RO_ATTR(kairo_lifetime_session_count),
++	DD_RO_ATTR(kairo_lifetime_model_count),
++	DD_RO_ATTR(kairo_lifetime_persistent_count),
++	DD_RO_ATTR(kairo_recompute_ok_count),
++	DD_RO_ATTR(kairo_has_model_id_count),
++	DD_RO_ATTR(kairo_has_session_id_count),
++	DD_RO_ATTR(kairo_has_cache_pool_count),
  	__ATTR_NULL
  };
- 

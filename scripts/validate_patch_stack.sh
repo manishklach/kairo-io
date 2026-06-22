@@ -103,6 +103,43 @@ for entry in "${foundation_symbols[@]}"; do
   grep -q "$symbol" "$patch" || fail "missing symbol $symbol in $(basename "$patch")"
 done
 
+# Stage 6: verify placement/lifetime symbols in broad patch 0007
+required_stage6_symbols=(
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:enum kairo_lifetime_class"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:struct kairo_placement_hint"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:blk_mq_kairo_default_placement"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:kairo_has_model_id"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:kairo_has_session_id"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:kairo_is_short_lived"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:kairo_is_session_lived"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:kairo_is_model_lived"
+  "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:kairo_recompute_ok"
+)
+
+for entry in "${required_stage6_symbols[@]}"; do
+  patch="${entry%%:*}"
+  symbol="${entry#*:}"
+  grep -q "$symbol" "$patch" || fail "missing Stage 6 symbol $symbol in $(basename "$patch")"
+done
+
+# Stage 6: verify placement/lifetime scaffold counters in broad patch 0009
+required_stage6_sysfs_names=(
+  "kairo_placement_hints"
+  "kairo_lifetime_short_count"
+  "kairo_lifetime_session_count"
+  "kairo_lifetime_model_count"
+  "kairo_lifetime_persistent_count"
+  "kairo_recompute_ok_count"
+  "kairo_has_model_id_count"
+  "kairo_has_session_id_count"
+  "kairo_has_cache_pool_count"
+)
+
+for name in "${required_stage6_sysfs_names[@]}"; do
+  grep -q "$name" "$PATCH_DIR/0009-rfc-kairo-sysfs-debug-counters.patch" || \
+    fail "missing Stage 6 sysfs counter $name in broad patch 0009"
+done
+
 required_sysfs_names=(
   "kairo_enable"
   "kairo_decode_budget"

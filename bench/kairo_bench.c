@@ -74,6 +74,14 @@ struct kairo_config {
     enum kairo_hint_mode hint_mode;
     enum kairo_semantic_mode semantic_mode;
     bool evict_threads_explicit;
+    unsigned int fixed_model_id;
+    unsigned int fixed_session_id;
+    unsigned int fixed_cache_pool_id;
+    unsigned int fixed_placement_group;
+    unsigned int cache_pools;
+    unsigned int placement_groups;
+    uint32_t lifetime_class;
+    bool recompute_ok;
 };
 
 struct kairo_stats {
@@ -158,6 +166,8 @@ struct kairo_worker_ctx {
     volatile bool *stop;
     off_t region_start;
     off_t region_length;
+    unsigned int cache_pool_id;
+    unsigned int placement_group;
 };
 
 static const char *kairo_mode_name(enum kairo_mode mode)
@@ -262,6 +272,21 @@ static enum kairo_semantic_mode parse_semantic_mode(const char *value)
     exit(EXIT_FAILURE);
 }
 
+static uint32_t parse_lifetime(const char *value)
+{
+    if (strcmp(value, "short") == 0)
+        return KAIRO_USER_LIFE_SHORT;
+    if (strcmp(value, "session") == 0)
+        return KAIRO_USER_LIFE_SESSION;
+    if (strcmp(value, "model") == 0)
+        return KAIRO_USER_LIFE_MODEL;
+    if (strcmp(value, "persistent") == 0)
+        return KAIRO_USER_LIFE_PERSISTENT;
+
+    fprintf(stderr, "invalid lifetime: %s (expected short|session|model|persistent)\n", value);
+    exit(EXIT_FAILURE);
+}
+
 static void usage(const char *prog)
 {
     fprintf(stderr,
@@ -279,6 +304,14 @@ static void usage(const char *prog)
             "  --evict-threads <n>       Default 0\n"
             "  --sessions <n>            Default 1\n"
             "  --models <n>              Default 1\n"
+            "  --cache-pools <n>         Number of cache pools (default: 1)\n"
+            "  --placement-groups <n>    Number of placement groups (default: 1)\n"
+            "  --model-id <n>            Fixed model ID (default: distribute)\n"
+            "  --session-id <n>          Fixed session ID (default: distribute)\n"
+            "  --cache-pool-id <n>       Fixed cache pool ID (default: 0)\n"
+            "  --placement-group <n>     Fixed placement group (default: 0)\n"
+            "  --lifetime <name>         short|session|model|persistent\n"
+            "  --recompute-ok            Mark writes as recomputable\n"
             "  --prefill-region-pct <n>  Default 34\n"
             "  --decode-region-pct <n>   Default 33\n"
             "  --runtime <sec>           Default 60\n"
@@ -440,6 +473,14 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->hint_mode = KAIRO_HINT_MODE_IOPRIO;
     cfg->semantic_mode = KAIRO_SEMANTIC_NORMAL;
     cfg->evict_threads_explicit = false;
+    cfg->fixed_model_id = 0;
+    cfg->fixed_session_id = 0;
+    cfg->fixed_cache_pool_id = 0;
+    cfg->fixed_placement_group = 0;
+    cfg->cache_pools = 1;
+    cfg->placement_groups = 1;
+    cfg->lifetime_class = KAIRO_USER_LIFE_NONE;
+    cfg->recompute_ok = false;
 }
 
 static void apply_mode_defaults(struct kairo_config *cfg)
@@ -1126,6 +1167,14 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("prefetch_threads=%u\n", cfg->prefetch_threads);
     printf("write_threads=%u\n", cfg->write_threads);
     printf("evict_threads=%u\n", cfg->evict_threads);
+    printf("cache_pools=%u\n", cfg->cache_pools);
+    printf("placement_groups=%u\n", cfg->placement_groups);
+    printf("lifetime=%s\n", kairo_user_lifetime_name(cfg->lifetime_class));
+    printf("recompute_ok=%d\n", cfg->recompute_ok);
+    printf("fixed_model_id=%u\n", cfg->fixed_model_id);
+    printf("fixed_session_id=%u\n", cfg->fixed_session_id);
+    printf("fixed_cache_pool_id=%u\n", cfg->fixed_cache_pool_id);
+    printf("fixed_placement_group=%u\n", cfg->fixed_placement_group);
     printf("decode_total_reads=%" PRIu64 "\n", snapshot.total_decode_reads);
     printf("prefetch_total_reads=%" PRIu64 "\n", snapshot.total_prefetch_reads);
     printf("write_total_ops=%" PRIu64 "\n", snapshot.total_writes);
@@ -1204,6 +1253,14 @@ int main(int argc, char **argv)
         {"cluster-size-blocks", required_argument, NULL, 5},
         {"fragment-size", required_argument, NULL, 6},
         {"semantic-mode", required_argument, NULL, 8},
+        {"model-id", required_argument, NULL, 9},
+        {"session-id", required_argument, NULL, 10},
+        {"cache-pool-id", required_argument, NULL, 11},
+        {"placement-group", required_argument, NULL, 12},
+        {"lifetime", required_argument, NULL, 13},
+        {"recompute-ok", no_argument, NULL, 14},
+        {"cache-pools", required_argument, NULL, 15},
+        {"placement-groups", required_argument, NULL, 16},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -1266,6 +1323,30 @@ int main(int argc, char **argv)
             break;
         case 8:
             cfg.semantic_mode = parse_semantic_mode(optarg);
+            break;
+        case 9:
+            cfg.fixed_model_id = (unsigned int)parse_size(optarg, "model-id");
+            break;
+        case 10:
+            cfg.fixed_session_id = (unsigned int)parse_size(optarg, "session-id");
+            break;
+        case 11:
+            cfg.fixed_cache_pool_id = (unsigned int)parse_size(optarg, "cache-pool-id");
+            break;
+        case 12:
+            cfg.fixed_placement_group = (unsigned int)parse_size(optarg, "placement-group");
+            break;
+        case 13:
+            cfg.lifetime_class = parse_lifetime(optarg);
+            break;
+        case 14:
+            cfg.recompute_ok = true;
+            break;
+        case 15:
+            cfg.cache_pools = (unsigned int)parse_size(optarg, "cache-pools");
+            break;
+        case 16:
+            cfg.placement_groups = (unsigned int)parse_size(optarg, "placement-groups");
             break;
         case 4:
             cfg.stride_blocks = (unsigned int)parse_size(optarg, "stride-blocks");
@@ -1335,8 +1416,10 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
-            .session_id = i % cfg.sessions,
-            .model_id = i % cfg.models,
+            .session_id = cfg.fixed_session_id > 0 ? cfg.fixed_session_id : i % cfg.sessions,
+            .model_id = cfg.fixed_model_id > 0 ? cfg.fixed_model_id : i % cfg.models,
+            .cache_pool_id = cfg.fixed_cache_pool_id > 0 ? cfg.fixed_cache_pool_id : i % cfg.cache_pools,
+            .placement_group = cfg.fixed_placement_group > 0 ? cfg.fixed_placement_group : i % cfg.placement_groups,
             .kind = KAIRO_WORKER_DECODE,
             .stop = &stop,
             .region_start = 0,
@@ -1351,8 +1434,10 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
-            .session_id = (i + cfg.decode_threads) % cfg.sessions,
-            .model_id = (i + cfg.decode_threads) % cfg.models,
+            .session_id = cfg.fixed_session_id > 0 ? cfg.fixed_session_id : (i + cfg.decode_threads) % cfg.sessions,
+            .model_id = cfg.fixed_model_id > 0 ? cfg.fixed_model_id : (i + cfg.decode_threads) % cfg.models,
+            .cache_pool_id = cfg.fixed_cache_pool_id > 0 ? cfg.fixed_cache_pool_id : (i + cfg.decode_threads) % cfg.cache_pools,
+            .placement_group = cfg.fixed_placement_group > 0 ? cfg.fixed_placement_group : (i + cfg.decode_threads) % cfg.placement_groups,
             .kind = KAIRO_WORKER_PREFETCH,
             .stop = &stop,
             .region_start = decode_region,
@@ -1367,8 +1452,10 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
-            .session_id = (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.sessions,
-            .model_id = (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.models,
+            .session_id = cfg.fixed_session_id > 0 ? cfg.fixed_session_id : (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.sessions,
+            .model_id = cfg.fixed_model_id > 0 ? cfg.fixed_model_id : (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.models,
+            .cache_pool_id = cfg.fixed_cache_pool_id > 0 ? cfg.fixed_cache_pool_id : (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.cache_pools,
+            .placement_group = cfg.fixed_placement_group > 0 ? cfg.fixed_placement_group : (i + cfg.decode_threads + cfg.prefetch_threads) % cfg.placement_groups,
             .kind = KAIRO_WORKER_WRITE,
             .stop = &stop,
             .region_start = write_region_start,
@@ -1383,8 +1470,10 @@ int main(int argc, char **argv)
             .cfg = &cfg,
             .stats = &stats,
             .worker_id = i,
-            .session_id = (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.sessions,
-            .model_id = (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.models,
+            .session_id = cfg.fixed_session_id > 0 ? cfg.fixed_session_id : (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.sessions,
+            .model_id = cfg.fixed_model_id > 0 ? cfg.fixed_model_id : (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.models,
+            .cache_pool_id = cfg.fixed_cache_pool_id > 0 ? cfg.fixed_cache_pool_id : (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.cache_pools,
+            .placement_group = cfg.fixed_placement_group > 0 ? cfg.fixed_placement_group : (i + cfg.decode_threads + cfg.prefetch_threads + cfg.write_threads) % cfg.placement_groups,
             .kind = KAIRO_WORKER_EVICT,
             .stop = &stop,
             .region_start = write_region_start,
