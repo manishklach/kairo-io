@@ -45,6 +45,20 @@ local apply/build target for Stage 1 and Stage 2 validation.
 - merge instrumentation uses per-request flags (`KAIRO_HINT_MERGE_ATTEMPTED`, `KAIRO_HINT_MERGE_SUCCESS`)
   set during `attempt_merge` and consumed by the scheduler at dispatch time
 
+## Stage 6.5: Placement Experiment Harness
+
+The repo now also carries a hardened Stage 6.5 harness:
+
+- `scripts/run_stage6_placement_experiment.sh` accepts `<file-path>` and
+  `<block-device>`, runs five canonical cases, and saves structured results
+  under `results/stage6/<timestamp>/`.
+- `scripts/parse_stage6_placement_summary.py` parses `summary.log` files
+  and emits CSV or pretty-printed tables with counter delta columns.
+- Counter deltas distinguish `NA` (counter not present) from `0` (no change).
+
+Stage 6.5 does not modify the foundation stack or add NVMe/FDP/ZNS mapping.
+It is a benchmark/experiment harness hardening pass.
+
 ## Validation Focus
 
 Immediate validation remains centered on:

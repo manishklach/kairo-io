@@ -2,151 +2,144 @@
 """
 parse_stage6_placement_summary.py
 
-Parses kairo_bench Stage 6 placement/lifetime summary output and prints
-a formatted comparison table.
+Parses Stage 6 benchmark summary.log files and emits CSV or pretty-printed
+tables suitable for analysis and comparison.
 
 Usage:
-    python3 parse_stage6_placement_summary.py < log.txt
-    python3 parse_stage6_placement_summary.py file1.log file2.log ...
+    python3 parse_stage6_placement_summary.py results/stage6/*/summary.log --csv
+    python3 parse_stage6_placement_summary.py results/stage6/*/summary.log --pretty
+    cat summary.log | python3 parse_stage6_placement_summary.py --csv
 """
 
+import csv
 import re
 import sys
 from pathlib import Path
 
-RE_FIELDS = {
-    "file": re.compile(r"^file=(.+)$"),
-    "mode": re.compile(r"^mode=(.+)$"),
-    "hint_mode": re.compile(r"^hint_mode=(.+)$"),
-    "semantic_mode": re.compile(r"^semantic_mode=(.+)$"),
-    "access_pattern": re.compile(r"^access_pattern=(.+)$"),
-    "block_size_bytes": re.compile(r"^block_size_bytes=(\d+)$"),
-    "sessions": re.compile(r"^sessions=(\d+)$"),
-    "models": re.compile(r"^models=(\d+)$"),
-    "cache_pools": re.compile(r"^cache_pools=(\d+)$"),
-    "placement_groups": re.compile(r"^placement_groups=(\d+)$"),
-    "lifetime": re.compile(r"^lifetime=(.+)$"),
-    "recompute_ok": re.compile(r"^recompute_ok=(\d+)$"),
-    "fixed_model_id": re.compile(r"^fixed_model_id=(\d+)$"),
-    "fixed_session_id": re.compile(r"^fixed_session_id=(\d+)$"),
-    "fixed_cache_pool_id": re.compile(r"^fixed_cache_pool_id=(\d+)$"),
-    "fixed_placement_group": re.compile(r"^fixed_placement_group=(\d+)$"),
-    "decode_threads": re.compile(r"^decode_threads=(\d+)$"),
-    "prefetch_threads": re.compile(r"^prefetch_threads=(\d+)$"),
-    "write_threads": re.compile(r"^write_threads=(\d+)$"),
-    "evict_threads": re.compile(r"^evict_threads=(\d+)$"),
-    "decode_total_reads": re.compile(r"^decode_total_reads=(\d+)$"),
-    "prefetch_total_reads": re.compile(r"^prefetch_total_reads=(\d+)$"),
-    "write_total_ops": re.compile(r"^write_total_ops=(\d+)$"),
-    "evict_total_ops": re.compile(r"^evict_total_ops=(\d+)$"),
-    "decode_avg_us": re.compile(r"^decode_avg_us=([0-9.]+)$"),
-    "decode_p50_us": re.compile(r"^decode_p50_us=([0-9.]+)$"),
-    "decode_p95_us": re.compile(r"^decode_p95_us=([0-9.]+)$"),
-    "decode_p99_us": re.compile(r"^decode_p99_us=([0-9.]+)$"),
-    "decode_read_MBps": re.compile(r"^decode_read_MBps=([0-9.]+)$"),
-    "prefetch_read_MBps": re.compile(r"^prefetch_read_MBps=([0-9.]+)$"),
-    "write_MBps": re.compile(r"^write_MBps=([0-9.]+)$"),
-}
+CSV_COLUMNS = [
+    "case",
+    "models",
+    "sessions",
+    "cache_pools",
+    "placement_groups",
+    "lifetime",
+    "recompute_ok",
+    "semantic_mode",
+    "hint_mode",
+    "decode_p99_us",
+    "decode_p95_us",
+    "decode_avg_us",
+    "write_MBps",
+    "decode_read_MBps",
+    "prefetch_read_MBps",
+    "total_evictions",
+    "kairo_model_tagged_requests_delta",
+    "kairo_session_tagged_requests_delta",
+    "kairo_cache_pool_tagged_requests_delta",
+    "kairo_recompute_ok_requests_delta",
+    "kairo_placement_hints_delta",
+    "kairo_has_model_id_count_delta",
+    "kairo_has_session_id_count_delta",
+    "kairo_has_cache_pool_count_delta",
+    "kairo_lifetime_short_count_delta",
+    "kairo_lifetime_session_count_delta",
+    "kairo_lifetime_model_count_delta",
+    "kairo_lifetime_persistent_count_delta",
+]
 
-HEADER_LINE = re.compile(r"^=== Run: (.+) ===")
+RE_KEY_VAL = re.compile(r"^(\w[\w_]*)=(.*)$")
 
 
-def parse_log(text: str) -> list[dict]:
-    """Parse concatenated kairo_bench outputs, returning a list of run dicts."""
-    runs = []
-    current = None
-
+def parse_summary(text: str) -> dict:
+    """Parse a summary.log text into a key-value dict."""
+    result = {}
     for line in text.splitlines():
-        m = HEADER_LINE.match(line)
+        m = RE_KEY_VAL.match(line)
         if m:
-            if current is not None:
-                runs.append(current)
-            current = {"_label": m.group(1)}
-            continue
-
-        if current is None:
-            continue
-
-        for key, regex in RE_FIELDS.items():
-            m2 = regex.match(line)
-            if m2:
-                current[key] = m2.group(1)
-                break
-
-    if current is not None:
-        runs.append(current)
-
-    return runs
+            result[m.group(1)] = m.group(2).strip()
+    return result
 
 
-def fmt(val: str | None, default: str = "-") -> str:
-    return val if val else default
+def parse_summary_file(path: Path) -> dict:
+    return parse_summary(path.read_text())
 
 
-def print_table(runs: list[dict]) -> None:
-    """Print a formatted comparison table of all runs."""
-    if not runs:
-        print("(no runs parsed)")
+def parse_stdin() -> list[dict]:
+    """Parse concatenated summary.log content from stdin (header-separated)."""
+    return [parse_summary(sys.stdin.read())]
+
+
+def make_row(summary: dict) -> dict:
+    """Build a CSV row dict from a parsed summary, with blank for missing keys."""
+    row = {}
+    for col in CSV_COLUMNS:
+        row[col] = summary.get(col, "")
+    return row
+
+
+def write_csv(rows: list[dict], out):
+    writer = csv.DictWriter(out, fieldnames=CSV_COLUMNS)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+
+
+def write_pretty(rows: list[dict], out):
+    if not rows:
+        print("(no data)", file=out)
         return
 
-    columns = [
-        ("Label", "_label"),
-        ("Lifetime", "lifetime"),
-        ("Recompute", "recompute_ok"),
-        ("FixModel", "fixed_model_id"),
-        ("FixSession", "fixed_session_id"),
-        ("FixCache", "fixed_cache_pool_id"),
-        ("FixPlace", "fixed_placement_group"),
-        ("CachePools", "cache_pools"),
-        ("PlaceGrps", "placement_groups"),
-        ("DecodeRd", "decode_total_reads"),
-        ("DecAvgUs", "decode_avg_us"),
-        ("DecP95Us", "decode_p95_us"),
-        ("DecMBps", "decode_read_MBps"),
-        ("WrMBps", "write_MBps"),
-    ]
+    col_widths = {col: len(col) for col in CSV_COLUMNS}
+    for row in rows:
+        for col in CSV_COLUMNS:
+            col_widths[col] = max(col_widths[col], len(str(row.get(col, ""))))
 
-    col_widths = {}
-    for header, key in columns:
-        max_w = len(header)
-        for run in runs:
-            v = fmt(run.get(key, ""))
-            if len(v) > max_w:
-                max_w = len(v)
-        col_widths[key] = max(max_w, len(header))
+    header = " | ".join(h.rjust(col_widths[h]) for h in CSV_COLUMNS)
+    sep = "-+-".join("-" * col_widths[h] for h in CSV_COLUMNS)
 
-    # header
-    parts = []
-    for header, key in columns:
-        parts.append(header.rjust(col_widths[key]))
-    print(" | ".join(parts))
-    print("-+-".join("-" * w for _, (_, key) in zip(columns, [(c, c) for c in columns]) if (w := col_widths.get(key if isinstance(key, str) else "", 1))))
-
-    # Actually just print simple separator
-    total_w = sum(col_widths.values()) + 3 * (len(columns) - 1)
-    print("-" * total_w)
-
-    # rows
-    for run in runs:
-        parts = []
-        for header, key in columns:
-            v = fmt(run.get(key, ""))
-            parts.append(v.rjust(col_widths[key]))
-        print(" | ".join(parts))
+    print(header, file=out)
+    print(sep, file=out)
+    for row in rows:
+        line = " | ".join(str(row.get(h, "")).rjust(col_widths[h]) for h in CSV_COLUMNS)
+        print(line, file=out)
 
 
-def main() -> None:
-    if len(sys.argv) > 1:
-        for path in sys.argv[1:]:
-            text = Path(path).read_text()
-            runs = parse_log(text)
-            print(f"\n=== {path} ===")
-            print_table(runs)
+def main():
+    args = sys.argv[1:]
+    fmt = "pretty"
+    paths = []
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--csv":
+            fmt = "csv"
+        elif args[i] == "--pretty":
+            fmt = "pretty"
+        elif args[i].startswith("--"):
+            print(f"unknown option: {args[i]}", file=sys.stderr)
+            return 1
+        else:
+            paths.append(args[i])
+        i += 1
+
+    rows = []
+    if paths:
+        for p in paths:
+            pp = Path(p)
+            if pp.exists():
+                rows.append(make_row(parse_summary_file(pp)))
+            else:
+                print(f"warning: not found: {p}", file=sys.stderr)
     else:
-        text = sys.stdin.read()
-        runs = parse_log(text)
-        print_table(runs)
+        rows = [make_row(r) for r in parse_stdin()]
+
+    if fmt == "csv":
+        write_csv(rows, sys.stdout)
+    else:
+        write_pretty(rows, sys.stdout)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

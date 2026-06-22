@@ -87,6 +87,16 @@ counter_names=(
   kairo_has_model_id_count
   kairo_has_session_id_count
   kairo_has_cache_pool_count
+
+  # Stage 6: newer/preferred naming set
+  kairo_model_tagged_requests
+  kairo_session_tagged_requests
+  kairo_cache_pool_tagged_requests
+  kairo_short_lived_requests
+  kairo_session_lived_requests
+  kairo_model_lived_requests
+  kairo_persistent_lived_requests
+  kairo_recompute_ok_requests
 )
 
 for name in "${counter_names[@]}"; do

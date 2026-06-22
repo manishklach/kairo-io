@@ -103,6 +103,32 @@ for entry in "${foundation_symbols[@]}"; do
   grep -q "$symbol" "$patch" || fail "missing symbol $symbol in $(basename "$patch")"
 done
 
+# Stage 6.5: verify experiment harness
+stage65_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 6.5: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage65_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 6.5: missing file: $1"
+}
+
+RSE="$SCRIPT_DIR/run_stage6_placement_experiment.sh"
+PSP="$SCRIPT_DIR/parse_stage6_placement_summary.py"
+KB="$REPO_ROOT/bench/kairo_bench.c"
+DOC="$REPO_ROOT/docs/stage6_model_session_lifetime.md"
+
+stage65_has_pattern "$RSE" "results/stage6"
+stage65_has_pattern "$RSE" "block-device"
+stage65_has_pattern "$RSE" "collect_kairo_counters.sh"
+stage65_file_exists "$PSP"
+stage65_has_pattern "$PSP" "--csv"
+stage65_has_pattern "$KB" "cache_pools="
+stage65_has_pattern "$KB" "placement_groups="
+stage65_has_pattern "$KB" "lifetime="
+stage65_has_pattern "$KB" "recompute_ok="
+stage65_has_pattern "$DOC" "results/stage6"
+
 # Stage 6: verify placement/lifetime symbols in broad patch 0007
 required_stage6_symbols=(
   "$PATCH_DIR/0007-rfc-kairo-placement-lifetime-hints.patch:enum kairo_lifetime_class"

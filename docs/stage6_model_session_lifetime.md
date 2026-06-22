@@ -129,32 +129,115 @@ Placement hint flags:
 | `kairo_has_session_id_count` | u64 | Requests with non-zero `session_id` |
 | `kairo_has_cache_pool_count` | u64 | Requests with non-zero `cache_pool_id` |
 
-## Experiment Script
+## Experiment Script (Stage 6.5 Harness)
 
-Use `scripts/run_stage6_placement_experiment.sh` to exercise all new CLI options.
+Use `scripts/run_stage6_placement_experiment.sh` to run the five canonical
+placement/lifetime benchmark cases with structured output.
 
-It runs the following scenarios:
+### Usage
 
-1. **Baseline** — no placement metadata
-2. **Fixed model-id** — all workers share `model_id=1`
-3. **Fixed session-id** — all workers share `session_id=42`
-4. **Fixed cache-pool+placement** — single pool/group for all
-5. **Lifetime classes** — one run per lifetime class
-6. **Recompute-ok flag** — marks writes as recomputable
-7. **Multiple pools/groups** — `--cache-pools 4 --placement-groups 2`
-8. **Combined** — metadata fields simultaneously
-9. **Multisession mode** — multisession + 4 cache pools + session lifetime
-
-## Parser Utility
-
-Use `scripts/parse_stage6_placement_summary.py` to convert benchmark output
-into a formatted comparison table.
-
-Usage:
 ```bash
-./scripts/run_stage6_placement_experiment.sh 2>&1 | tee stage6_results.log
-python3 scripts/parse_stage6_placement_summary.py stage6_results.log
+./scripts/run_stage6_placement_experiment.sh <file-path> <block-device> [options]
 ```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `file-path` | Target file path for benchmark I/O |
+| `block-device` | Block device name (e.g. `nvme0n1`) for sysfs counter collection. Optional with `--skip-counters`. |
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--duration SEC` | 30 | Per-case benchmark runtime |
+| `--bench PATH` | auto | Benchmark binary path |
+| `--results-dir PATH` | `results/stage6/<timestamp>` | Output directory |
+| `--hint-mode MODE` | both | Hint mode: `ioprio`, `rwf`, or `both` |
+| `--skip-counters` | off | Skip sysfs counter collection |
+| `--dry-run` | off | Print commands without executing |
+| `--help` | | Show help |
+
+### Examples
+
+```bash
+./scripts/run_stage6_placement_experiment.sh /mnt/test/kairo.bin nvme0n1
+./scripts/run_stage6_placement_experiment.sh /mnt/test/kairo.bin nvme0n1 --duration 60 --hint-mode both
+./scripts/run_stage6_placement_experiment.sh /tmp/kairo.bin loop0 --skip-counters
+```
+
+### Canonical Cases
+
+The script runs five canonical Stage 6 placement/lifetime cases:
+
+1. **single-model-single-session** — basic placement with one model/session
+2. **multi-session-single-model** — 8 sessions, 4 placement groups, session lifetime
+3. **multi-model-multi-session** — 4 models, 16 sessions, 4 cache pools, model lifetime
+4. **multi-cache-pool** — 4 pools, 4 groups, short lifetime
+5. **recomputable-session-cache** — ephemeral-recomputable semantics, eviction pressure
+
+### Results Directory Layout
+
+```
+results/stage6/<timestamp>/
+  run_metadata.log          # Run configuration and environment
+  summary.csv               # Aggregated CSV across all cases
+  01-single-model-single-session/
+    command.txt             # Exact benchmark command
+    bench.log               # Benchmark stdout/stderr
+    summary.log             # Parsed summary with counter deltas
+    counters-before/        # Sysfs counter snapshots (pre-run)
+    counters-after/         # Sysfs counter snapshots (post-run)
+  02-multi-session-single-model/
+    ...
+  03-multi-model-multi-session/
+    ...
+  04-multi-cache-pool/
+    ...
+  05-recomputable-session-cache/
+    ...
+```
+
+### Counter Deltas
+
+Counter deltas are computed as `after - before` for each sysfs counter.
+Missing counters are recorded as `NA` (not available) rather than `0`,
+so a zero delta means "counter existed and did not change" while `NA`
+means "counter not present in this kernel."
+
+### Parser Utility
+
+Use `scripts/parse_stage6_placement_summary.py` to convert `summary.log`
+files into CSV or a formatted comparison table.
+
+### Parser Usage
+
+```bash
+python3 scripts/parse_stage6_placement_summary.py results/stage6/<timestamp>/*/summary.log --csv
+python3 scripts/parse_stage6_placement_summary.py results/stage6/<timestamp>/*/summary.log --pretty
+cat results/stage6/<timestamp>/summary.csv
+```
+
+### CSV Output Columns
+
+```
+case, models, sessions, cache_pools, placement_groups, lifetime,
+recompute_ok, semantic_mode, hint_mode,
+decode_p99_us, decode_p95_us, decode_avg_us,
+write_MBps, decode_read_MBps, prefetch_read_MBps, total_evictions,
+kairo_model_tagged_requests_delta, kairo_session_tagged_requests_delta,
+kairo_cache_pool_tagged_requests_delta, kairo_recompute_ok_requests_delta,
+kairo_placement_hints_delta, kairo_has_model_id_count_delta,
+kairo_has_session_id_count_delta, kairo_has_cache_pool_count_delta,
+kairo_lifetime_short_count_delta, kairo_lifetime_session_count_delta,
+kairo_lifetime_model_count_delta, kairo_lifetime_persistent_count_delta
+```
+
+### NA vs 0
+
+- `NA` = counter not present in sysfs (kernel not patched, or counter name missing)
+- `0` = counter was found and had the same value before and after (no movement)
 
 ## What Still Needs Validation
 

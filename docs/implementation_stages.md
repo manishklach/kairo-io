@@ -107,6 +107,23 @@ The foundation stack currently covers Stage 1 and Stage 2 only.
   - NVMe Streams/FDP/ZNS mapping (deferred to Stage 7)
   - scheduler policy changes based on lifetime class
 
+## Stage 6.5
+
+- Status: benchmark/experiment harness, not foundation-integrated
+- Scripts involved:
+  - `scripts/run_stage6_placement_experiment.sh` — hardened harness accepting
+    `<file-path> <block-device>` with structured `results/stage6/<timestamp>/` output
+  - `scripts/parse_stage6_placement_summary.py` — CSV and pretty-printed summary
+    parser supporting counter delta columns
+  - `scripts/collect_kairo_counters.sh` — Stage 6 counter coverage (both naming sets)
+- What is measurable:
+  - five canonical placement/lifetime cases with before/after counter deltas
+  - structured run metadata and per-case `summary.log` files
+  - aggregated `summary.csv` across all cases
+- What is still RFC-only:
+  - NVMe/FDP/ZNS mapping (deferred to Stage 7)
+  - physical placement control based on placement-group hints
+
 ## Stage 7
 
 - Broad RFC/POC patches involved: `0008`

@@ -12,6 +12,14 @@
 | NVMe/ZNS/FDP mapping | `0008` | scaffolded | feature-detected mapping hooks with no-op fallback |
 | debug counters | `0009` | implemented | compile-targeted Linux 6.8.x sysfs counters and tunables; Stage 6 scaffold placement/lifetime counters |
 
+## Stage 6.5 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Placement experiment harness | implemented | Hardened `run_stage6_placement_experiment.sh` with `<file-path> <block-device>`, structured results, counter deltas, CSV output |
+| Summary parser | implemented | `parse_stage6_placement_summary.py` with `--csv` and `--pretty` output, counter delta columns |
+| Counter coverage | updated | `collect_kairo_counters.sh` includes both naming sets for Stage 6 counters |
+
 ## Current Read
 
 The repo now has the shape of the full Kairo architecture, but the maturity is
