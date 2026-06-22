@@ -91,7 +91,7 @@ conceptual_patches=(
 # foundation patch get an extra grep check against that foundation patch.
 declare -A symbol_checks
 symbol_checks["0005-rfc-kairo-prefetch-deadline-hints.patch"]="dd_kairo_dispatch_decode_request"
-symbol_checks["0009-rfc-kairo-sysfs-debug-counters.patch"]="dd_kairo_note_demotions"
+symbol_checks["0009-rfc-kairo-sysfs-debug-counters.patch"]="kairo_enable"
 symbol_checks["0011-rfc-kairo-write-antistarvation-deadline.patch"]="dd_kairo_dispatch_decode_request"
 symbol_checks["0012-rfc-kairo-nvme-tag-reservation.patch"]="kairo_init_request_hints"
 symbol_checks["0013-rfc-kairo-mq-deadline-dispatch-O1.patch"]="dd_kairo_dispatch_decode_request"
