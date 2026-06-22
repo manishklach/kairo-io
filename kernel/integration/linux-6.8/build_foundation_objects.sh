@@ -27,13 +27,14 @@ if ! make -C "$LINUX_TREE" olddefconfig; then
   exit 1
 fi
 
-echo "[kairo] attempting focused build: block/mq-deadline.o"
-if make -C "$LINUX_TREE" -j"$JOBS" block/mq-deadline.o; then
-  echo "[kairo] focused mq-deadline object build completed"
+echo "[kairo] attempting focused build: block/blk-mq.o block/mq-deadline.o"
+if make -C "$LINUX_TREE" -j"$JOBS" block/blk-mq.o block/mq-deadline.o; then
+  echo "[kairo] focused block object build completed"
   exit 0
 fi
 
 echo "[kairo] focused build failed" >&2
-echo "[kairo] fallback to document locally: make -C \"$LINUX_TREE\" M=block block/mq-deadline.o" >&2
-echo "[kairo] if the tree rejects the direct mq-deadline target, use the tree's local block build flow and record it in patch_apply_notes.md" >&2
+echo "[kairo] local fallback 1: make -C \"$LINUX_TREE\" -j\"$JOBS\" block/mq-deadline.o" >&2
+echo "[kairo] local fallback 2: make -C \"$LINUX_TREE\" M=block block/blk-mq.o block/mq-deadline.o" >&2
+echo "[kairo] if the Linux tree still rejects direct object targets, use the tree's local block build flow and record it in patch_apply_notes.md" >&2
 exit 1

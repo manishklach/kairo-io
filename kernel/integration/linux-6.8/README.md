@@ -31,7 +31,8 @@ and compile target for Linux 6.8.x.
   - checks that the expected Kairo symbols exist in the patched Linux tree
 - `build_foundation_objects.sh`
   - runs `make olddefconfig`
-  - attempts a focused `block/mq-deadline.o` build
+  - first attempts `block/blk-mq.o block/mq-deadline.o`
+  - reports fallback commands clearly if the local Linux tree rejects that path
 - `patch_apply_notes.md`
   - records the local Linux 6.8 validation path and actual outcomes
 

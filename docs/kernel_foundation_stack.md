@@ -86,7 +86,10 @@ At the current repo state:
 - foundation patch applicability has been checked on a local Linux 6.8.12 tree
 - foundation patch application has been validated locally
 - foundation symbol validation has been validated locally
-- patched `block/mq-deadline.o` has been built locally
+- the requested combined `block/blk-mq.o block/mq-deadline.o` harness has been
+  run locally and currently fails on a `blk-mq.o` tree issue outside the Kairo
+  patch path
+- the direct patched `block/mq-deadline.o` build has passed locally
 - boot validation is still pending
 - runtime sysfs visibility is still pending
 - benchmark counter movement is still pending

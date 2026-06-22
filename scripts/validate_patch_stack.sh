@@ -26,9 +26,24 @@ required_foundation_patches=(
   "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch"
 )
 
+required_foundation_docs=(
+  "$FOUNDATION_DIR/README.md"
+  "$REPO_ROOT/docs/kernel_foundation_stack.md"
+  "$REPO_ROOT/kernel/integration/linux-6.8/apply_foundation_stack.sh"
+  "$REPO_ROOT/kernel/integration/linux-6.8/validate_foundation_stack.sh"
+  "$REPO_ROOT/kernel/integration/linux-6.8/build_foundation_objects.sh"
+)
+
 for patch in "${required_broad_patches[@]}"; do
   if [[ ! -f "$PATCH_DIR/$patch" ]]; then
     echo "[kairo] missing broad RFC/POC patch: $patch" >&2
+    exit 1
+  fi
+done
+
+for doc_path in "${required_foundation_docs[@]}"; do
+  if [[ ! -f "$doc_path" ]]; then
+    echo "[kairo] missing foundation support file: $doc_path" >&2
     exit 1
   fi
 done
@@ -121,8 +136,8 @@ cp "$LINUX_TREE/include/linux/blk_types.h" "$scratch_dir/include/linux/blk_types
 
 for patch in "${required_foundation_patches[@]}"; do
   echo "[kairo] checking patch applicability: $(basename "$patch")"
-  git -C "$scratch_dir" apply --check "$patch"
-  git -C "$scratch_dir" apply "$patch"
+  git -C "$scratch_dir" apply --check --recount "$patch"
+  git -C "$scratch_dir" apply --recount "$patch"
 done
 
 echo "[kairo] foundation patch applicability checks passed"

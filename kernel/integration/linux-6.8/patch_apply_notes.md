@@ -41,10 +41,14 @@ The foundation patch context was aligned against a real Linux 6.8.12 tree.
 - `make -C /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min -j$(nproc) block/mq-deadline.o`
   - result: passed on the patched tree
 - `kernel/integration/linux-6.8/build_foundation_objects.sh /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min`
-  - result: passed
+  - result: failed on the combined object target after `make olddefconfig`
   - `make olddefconfig` passed
-  - focused `block/mq-deadline.o` build passed
-- exploratory combined build:
+  - `make -C /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min -j$(nproc) block/blk-mq.o block/mq-deadline.o`
+  - result: failed on `block/blk-mq.o`
+  - script fallback 1 remains useful:
+    `make -C /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min -j$(nproc) block/mq-deadline.o`
+  - fallback 1 result: passed on the patched tree
+- direct combined build cross-check:
   - `make -C /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min -j$(nproc) block/blk-mq.o block/mq-deadline.o`
   - result: failed on `block/blk-mq.o`
   - the same `block/blk-mq.o` failure reproduces on the unpatched local tree, with `struct blk_plug` member errors (`nr_ios`, `cached_rq`, `mq_list`, `rq_count`, `multiple_queues`, `has_elevator`)

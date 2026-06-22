@@ -12,8 +12,8 @@ index 82a979d..2d26bef 100755
  
 @@ -39,6 +40,8 @@ static const int fifo_batch = 16;       /* # of sequential requests treated as o
  				     by the above parameters. For throughput. */
- static int kairo_enable;
- static int kairo_decode_budget = 8;
+ static bool kairo_enable = true;
+ static unsigned int kairo_decode_budget = 32;
 +static unsigned int kairo_prefetch_budget = 16;
 +static unsigned int kairo_prefetch_deadline_us = 5000;
  
@@ -32,7 +32,7 @@ index 82a979d..2d26bef 100755
 +	u64 kairo_evict_demotions;
  	u64 kairo_normal_dispatches;
  	u64 kairo_starvation_escapes;
- 	u32 kairo_decode_budget_used;
+ 	unsigned int kairo_decode_budget_used;
 +	u32 kairo_prefetch_budget_used;
  
  	/*

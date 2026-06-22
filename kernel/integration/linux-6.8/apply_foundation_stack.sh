@@ -59,12 +59,12 @@ cp "$LINUX_TREE/include/linux/blk_types.h" "$scratch_dir/include/linux/blk_types
 echo "[kairo] checking foundation stack against: $LINUX_TREE"
 for patch in "${foundation_patches[@]}"; do
   echo "[kairo] git apply --check $(basename "$patch")"
-  if ! git -C "$scratch_dir" apply --check "$patch"; then
+  if ! git -C "$scratch_dir" apply --check --recount "$patch"; then
     echo "[kairo] apply check failed for $(basename "$patch")" >&2
     exit 1
   fi
 
-  git -C "$scratch_dir" apply "$patch"
+  git -C "$scratch_dir" apply --recount "$patch"
 done
 
 echo "[kairo] all checks passed; applying foundation stack"
@@ -72,7 +72,7 @@ for patch in "${foundation_patches[@]}"; do
   echo "[kairo] applying $(basename "$patch")"
   (
     cd /tmp
-    git apply --unsafe-paths --directory="$LINUX_TREE" "$patch"
+    git apply --unsafe-paths --recount --directory="$LINUX_TREE" "$patch"
   )
 done
 

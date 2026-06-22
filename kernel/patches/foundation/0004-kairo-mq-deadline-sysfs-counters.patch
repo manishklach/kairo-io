@@ -2,13 +2,6 @@ diff --git a/block/mq-deadline.c b/block/mq-deadline.c
 index 2d26bef..9a2c478 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -105,6 +105,8 @@ struct deadline_data {
- 	u64 kairo_evict_demotions;
- 	u64 kairo_normal_dispatches;
- 	u64 kairo_starvation_escapes;
- 	u32 kairo_decode_budget_used;
- 	u32 kairo_prefetch_budget_used;
- 
 @@ -615,17 +617,21 @@ static bool dd_kairo_has_decode_read(struct deadline_data *dd)
  static bool dd_kairo_should_demote_prefill(struct deadline_data *dd,
  					   struct request *rq)
@@ -49,7 +42,7 @@ index 2d26bef..9a2c478 100755
  				dd->kairo_evict_demotions++;
  				break;
  			}
-@@ -649,6 +655,35 @@ static void dd_kairo_note_demotions(struct deadline_data *dd)
+@@ -649,6 +655,22 @@ static void dd_kairo_note_demotions(struct deadline_data *dd)
  	}
  }
  
@@ -72,7 +65,7 @@ index 2d26bef..9a2c478 100755
  static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd,
  							unsigned long latest_start)
  {
-@@ -779,19 +814,27 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -779,19 +814,24 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	spin_lock(&dd->lock);
  	rq = dd_kairo_dispatch_decode_request(dd, now);
  	if (rq) {
@@ -98,7 +91,7 @@ index 2d26bef..9a2c478 100755
  
  	/*
  	 * Next, dispatch requests in priority order. Ignore lower priority
-@@ -804,16 +847,8 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -804,16 +847,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	}
  
  	if (rq) {
