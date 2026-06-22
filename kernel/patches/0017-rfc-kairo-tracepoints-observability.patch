@@ -499,7 +499,7 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index f190ccd..d20ef19 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * Stage 8: Kairo trace enum comments for tracepoint payload self-description.
 + *
@@ -516,7 +516,7 @@ diff --git a/block/blk-mq.c b/block/blk-mq.c
 index 77ca638..a13b9e0 100644
 --- a/block/blk-mq.c
 +++ b/block/blk-mq.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +#include <trace/events/kairo.h>
 +
 +/*
@@ -542,7 +542,7 @@ diff --git a/block/mq-deadline.c b/block/mq-deadline.c
 index 2d26bef..48fe5f9 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +#include <trace/events/kairo.h>
 +
 +/*
@@ -611,7 +611,7 @@ diff --git a/block/blk-merge.c b/block/blk-merge.c
 index 6d8cd3a..bda6fd3 100644
 --- a/block/blk-merge.c
 +++ b/block/blk-merge.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +#include <trace/events/kairo.h>
 +
 +/*
@@ -635,7 +635,7 @@ diff --git a/block/blk-mq.c b/block/blk-mq.c
 index a13b9e0..f7c3d2b 100644
 --- a/block/blk-mq.c
 +++ b/block/blk-mq.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * CONCEPTUAL-HOOK: trace_kairo_semantic_classified() call site.
 + *
@@ -677,7 +677,7 @@ diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
 index 6d201df..5cd9028 100644
 --- a/drivers/nvme/host/core.c
 +++ b/drivers/nvme/host/core.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +#include <trace/events/kairo.h>
 +
 +/*

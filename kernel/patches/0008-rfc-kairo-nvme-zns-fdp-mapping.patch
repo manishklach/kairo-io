@@ -57,7 +57,7 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index f190ccd..d20ef19 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * SECTION A: Backend class enum and placement hint structure.
 + *
@@ -136,7 +136,7 @@ diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
 index 7b11be3..e4f2a1c 100644
 --- a/include/linux/blk-mq.h
 +++ b/include/linux/blk-mq.h
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * SECTION C: Generic backend mapping helpers.
 + *
@@ -226,7 +226,7 @@ diff --git a/include/linux/nvme.h b/include/linux/nvme.h
 index 44ba29f..63d2f01 100644
 --- a/include/linux/nvme.h
 +++ b/include/linux/nvme.h
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * SECTION E: NVMe Kairo mapping placeholder.
 + *
@@ -245,7 +245,7 @@ diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
 index 2f3c2ad..8b9e7c1 100644
 --- a/drivers/nvme/host/nvme.h
 +++ b/drivers/nvme/host/nvme.h
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * SECTION F: NVMe backend capability detection.
 + *
@@ -275,7 +275,7 @@ diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
 index 6d201df..5cd9028 100644
 --- a/drivers/nvme/host/core.c
 +++ b/drivers/nvme/host/core.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * SECTION G: Backend hint preparation and application.
 + *
@@ -326,7 +326,7 @@ index 6d201df..5cd9028 100644
  static void nvme_kairo_select_mapping(struct request *rq,
  				      struct nvme_kairo_mapping *map)
  {
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +	/*
 +	 * RFC/POC: call into the new backend mapping layer.
 +	 * The backend hint is prepared and stored in the request's
@@ -351,7 +351,7 @@ diff --git a/drivers/nvme/host/zns.c b/drivers/nvme/host/zns.c
 index 4ca102f..ac77fe9 100644
 --- a/drivers/nvme/host/zns.c
 +++ b/drivers/nvme/host/zns.c
-@@ -XXX,6 +XXX,XXX @@
+@@ -1 +1 @@
 +/*
 + * SECTION H: ZNS-aware Kairo zone reset candidate detection.
 + *
