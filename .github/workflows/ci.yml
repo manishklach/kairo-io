@@ -153,13 +153,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc make bc flex bison libelf-dev libssl-dev gcc-aarch64-linux-gnu
 
+      - name: Fetch full Linux source for builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          full="$RUNNER_TEMP/linux-6.8.12-full"
+          rm -rf "$full"
+          git clone --depth 1 "$LINUX_REMOTE" "$full"
+          git -C "$full" fetch --depth 1 origin "$LINUX_REF"
+          git -C "$full" checkout --force FETCH_HEAD
+          echo "linux-full=$full" >> "$GITHUB_ENV"
+
       - name: Build patched objects (native x86-64)
         shell: bash
         run: |
           set -euo pipefail
           linux_tree="$RUNNER_TEMP/linux-6.8.12-build-native"
           rm -rf "$linux_tree"
-          cp -R "$LINUX_CACHE_DIR" "$linux_tree"
+          cp -R "${{ env.linux-full }}" "$linux_tree"
           "$GITHUB_WORKSPACE/kernel/integration/linux-6.8/apply_full_series.sh" "$linux_tree"
           make -C "$linux_tree" defconfig
           make -C "$linux_tree" olddefconfig
@@ -172,7 +183,7 @@ jobs:
           set -euo pipefail
           linux_tree="$RUNNER_TEMP/linux-6.8.12-build-arm64"
           rm -rf "$linux_tree"
-          cp -R "$LINUX_CACHE_DIR" "$linux_tree"
+          cp -R "${{ env.linux-full }}" "$linux_tree"
           "$GITHUB_WORKSPACE/kernel/integration/linux-6.8/apply_full_series.sh" "$linux_tree"
           make -C "$linux_tree" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
           make -C "$linux_tree" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
