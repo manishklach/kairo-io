@@ -42,7 +42,7 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index 631af67..73b9f2d 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@
+@@ -0,0 +0,0 @@
 +/*
 + * Per-request Kairo merge-instrumentation flags.
 + * Set in the blk-merge path, consumed by the scheduler at dispatch time.
@@ -53,7 +53,7 @@ index 631af67..73b9f2d 100644
   struct kairo_request_hints {
   	enum kairo_io_class io_class;
   	u64 kairo_deadline_ns;
-@@
+@@ -0,0 +0,0 @@
 +static inline bool kairo_is_merge_candidate(struct request *rq, struct bio *bio)
 +{
 +	if (!rq->kairo_hints.io_class)
@@ -99,14 +99,14 @@ diff --git a/include/linux/blkdev.h b/include/linux/blkdev.h
 index 6aa1cb0..85b9031 100644
 --- a/include/linux/blkdev.h
 +++ b/include/linux/blkdev.h
-@@
+@@ -0,0 +0,0 @@
 +#define KAIRO_MERGE_BIAS_SECTORS	4096	/* 2 MiB in 512-byte sectors */
 +
 diff --git a/block/blk-merge.c b/block/blk-merge.c
 index 7f24b70..b987ab2 100644
 --- a/block/blk-merge.c
 +++ b/block/blk-merge.c
-@@
+@@ -0,0 +0,0 @@
  static struct request *attempt_merge(struct request_queue *q,
  				     struct request *rq, struct bio *bio)
  {
@@ -134,7 +134,7 @@ index 7f24b70..b987ab2 100644
 +	}
  	...
  }
-@@
+@@ -0,0 +0,0 @@
 +	if (rq->kairo_hints.flags & KAIRO_HINT_MERGE_ATTEMPTED) {
 +		/*
 +		 * If blk-merge's attempt_merge succeeded, mark success so
@@ -147,7 +147,7 @@ diff --git a/block/blk-mq.c b/block/blk-mq.c
 index 4ef6033..18fd0e3 100644
 --- a/block/blk-mq.c
 +++ b/block/blk-mq.c
-@@
+@@ -0,0 +0,0 @@
 +	/*
 +	 * RFC/POC: Kairo request-shape instrumentation at merge time.
 +	 *

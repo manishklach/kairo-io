@@ -27,7 +27,7 @@ diff --git a/block/blk-merge.c b/block/blk-merge.c
 index b987ab2..d4f6e3c 100755
 --- a/block/blk-merge.c
 +++ b/block/blk-merge.c
-@@
+@@ -0,0 +0,0 @@
 +#include <linux/blk-mq.h>
 +
 +/*

@@ -47,7 +47,7 @@ diff --git a/include/uapi/linux/fs.h b/include/uapi/linux/fs.h
 index 3417ea1..61aa111 100644
 --- a/include/uapi/linux/fs.h
 +++ b/include/uapi/linux/fs.h
-@@
+@@ -0,0 +0,0 @@
 +/*
 + * Local Kairo RFC/POC flags carried through preadv2/pwritev2 and io_uring.
 + * This is not a proposed stable UAPI.
@@ -65,7 +65,7 @@ diff --git a/include/linux/fs.h b/include/linux/fs.h
 index 74a4c11..7d44b22 100644
 --- a/include/linux/fs.h
 +++ b/include/linux/fs.h
-@@
+@@ -0,0 +0,0 @@
 +#define IOCB_KAIRO_DECODE          BIT_ULL(33)
 +#define IOCB_KAIRO_PREFETCH        BIT_ULL(34)
 +#define IOCB_KAIRO_PREFILL         BIT_ULL(35)
@@ -139,7 +139,7 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index e2886d9..f4bb333 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@
+@@ -0,0 +0,0 @@
 +/*
 + * This is a local RFC/POC metadata path. It is not a proposed stable UAPI.
 + */
@@ -149,7 +149,7 @@ index e2886d9..f4bb333 100644
 +	u32 prefetch_distance;
 +	u32 flags;
 +};
-@@
+@@ -0,0 +0,0 @@
 +struct bio {
 +	...
 +	struct kairo_bio_hints kairo_hints;
@@ -195,7 +195,7 @@ diff --git a/fs/read_write.c b/fs/read_write.c
 index c1a77a0..42af1cc 100644
 --- a/fs/read_write.c
 +++ b/fs/read_write.c
-@@
+@@ -0,0 +0,0 @@
  static ssize_t kiocb_set_rw_flags(struct kiocb *kiocb, rwf_t flags)
  {
 +	/*
@@ -216,7 +216,7 @@ diff --git a/io_uring/rw.c b/io_uring/rw.c
 index 9ad0f9b..c8719a0 100644
 --- a/io_uring/rw.c
 +++ b/io_uring/rw.c
-@@
+@@ -0,0 +0,0 @@
 +static inline void io_kairo_sqe_to_kiocb(struct io_kiocb *req,
 +					 struct kiocb *kiocb)
 +{
@@ -228,7 +228,7 @@ index 9ad0f9b..c8719a0 100644
 +	 */
 +	kiocb_set_kairo_flags(kiocb, READ_ONCE(req->rw.flags));
 +}
-@@
+@@ -0,0 +0,0 @@
  int io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe)
  {
 +	io_kairo_sqe_to_kiocb(req, &req->rw.kiocb);
