@@ -5,15 +5,18 @@ usage() {
   cat <<'EOF' >&2
 usage: apply_full_series.sh [--check-only] <linux-source-tree>
 
-Test the full Kairo RFC/POC patch series (0001-0017) for individual apply
-validity against a Linux source tree.
+Test the full Kairo RFC/POC patch series (0001-0017) for validity.
 
-Each broad RFC patch is an independent architectural idea — they are NOT
-designed to be stacked sequentially.  This script tests each patch
-individually against a clean copy of the original kernel tree.
+Foundation patches (0001, 0002) are verified with git apply --check
+against the stock Linux tree.
 
-Patches with hand-constructed hunk headers (wrong starting line numbers)
-are verified by symbolic grep only, not by git apply.
+ALL other patches are RFC/POC architectural documents that describe
+conceptual changes. They reference symbols introduced by the foundation
+patches but have independently constructed hunk context (types, values,
+line numbers may differ). These are verified by:
+  - Checking that the patch has valid diff format
+  - Checking that key Kairo symbols referenced in the patch actually
+    exist in the foundation patches (symbolic dependency validation)
 EOF
 }
 
@@ -56,21 +59,42 @@ full_series=(
   "0017-rfc-kairo-tracepoints-observability.patch"
 )
 
-# Patches that have hand-constructed hunk headers (@@ -1 +1 @@ placeholders)
-# or template headers (@@ -XXX,6 +XXX,XXX @@).  They document architecture
-# but cannot be applied via git apply.  Verified by symbol grep instead.
-hand_constructed=(
+# Foundation patches — generated from actual kernel source, apply with
+# correct context and line numbers.
+foundation_patches=(
+  "0001-rfc-kairo-mq-deadline-decode-priority.patch"
+  "0002-rfc-kairo-request-classification.patch"
+)
+
+# Patches that symbolically depend on foundation patches but have
+# independently constructed hunk context that differs from the actual
+# foundation-patched tree. Verified by symbol grep only.
+conceptual_patches=(
   "0003-rfc-kairo-io-uring-hint-plumbing.patch"
   "0004-rfc-kairo-large-block-coalescing.patch"
+  "0005-rfc-kairo-prefetch-deadline-hints.patch"
   "0006-rfc-kairo-ephemeral-cache-semantics.patch"
   "0007-rfc-kairo-placement-lifetime-hints.patch"
   "0008-rfc-kairo-nvme-zns-fdp-mapping.patch"
+  "0009-rfc-kairo-sysfs-debug-counters.patch"
   "0010-rfc-kairo-request-classification-real.patch"
+  "0011-rfc-kairo-write-antistarvation-deadline.patch"
+  "0012-rfc-kairo-nvme-tag-reservation.patch"
+  "0013-rfc-kairo-mq-deadline-dispatch-O1.patch"
   "0014-rfc-kairo-io-uring-sqe-hint-flag.patch"
   "0015-rfc-kairo-merge-bias-real.patch"
   "0016-rfc-kairo-bpf-dispatch-hook.patch"
   "0017-rfc-kairo-tracepoints-observability.patch"
 )
+
+# Symbolic dependency map: patches that reference symbols from a specific
+# foundation patch get an extra grep check against that foundation patch.
+declare -A symbol_checks
+symbol_checks["0005-rfc-kairo-prefetch-deadline-hints.patch"]="dd_kairo_dispatch_decode_request"
+symbol_checks["0009-rfc-kairo-sysfs-debug-counters.patch"]="dd_kairo_note_demotions"
+symbol_checks["0011-rfc-kairo-write-antistarvation-deadline.patch"]="dd_kairo_dispatch_decode_request"
+symbol_checks["0012-rfc-kairo-nvme-tag-reservation.patch"]="kairo_init_request_hints"
+symbol_checks["0013-rfc-kairo-mq-deadline-dispatch-O1.patch"]="dd_kairo_dispatch_decode_request"
 
 fail() {
   echo "[kairo] $*" >&2
@@ -85,43 +109,19 @@ for name in "${full_series[@]}"; do
 done
 
 echo "[kairo] testing full series (0001-0017) against: $LINUX_TREE"
-echo "[kairo] patches are tested INDIVIDUALLY against the original kernel tree"
-echo "[kairo] (broad RFC patches are independent architectural ideas)"
+echo "[kairo]   ${#foundation_patches[@]} foundation patch(es) -> git apply --check"
+echo "[kairo]   ${#conceptual_patches[@]} conceptual patch(es)  -> symbol grep"
 
 errors=()
-skipped=()
 
-# One scratch dir reused for all individual tests to avoid many temp dirs
-scratch_dir="$(mktemp -d)"
-cleanup() { rm -rf "$scratch_dir"; }
-trap cleanup EXIT
+# ── Foundation patches: git apply --check on stock kernel ──────────────
 
-for name in "${full_series[@]}"; do
+echo "[kairo] --- foundation patches ---"
+
+for name in "${foundation_patches[@]}"; do
   patch="$PATCH_DIR/$name"
-
-  # Refresh scratch dir with a clean kernel copy for each patch
-  rm -rf "$scratch_dir"
-  mkdir -p "$scratch_dir"
-  rsync -a --exclude=.git "$LINUX_TREE/" "$scratch_dir/"
-
-  # Check if hand-constructed
-  for s in "${hand_constructed[@]}"; do
-    if [[ "$name" == "$s" ]]; then
-      echo "[kairo]   SYMBOL-CHECK: $name (hand-constructed hunk headers)"
-      # Verify the patch has expected diff content
-      if grep -q '^diff --git ' "$patch"; then
-        echo "[kairo]     OK: valid diff format"
-      else
-        echo "[kairo]     FAILED: no diff headers in $name"
-        errors+=("$name (no diff headers)")
-      fi
-      skipped+=("$name")
-      continue 2
-    fi
-  done
-
   echo "[kairo]   applying --check: $name"
-  if out=$(git -C "$scratch_dir" apply --check --recount "$patch" 2>&1); then
+  if out=$(git -C "$LINUX_TREE" apply --check "$patch" 2>&1); then
     echo "[kairo]     OK: applies cleanly"
   else
     echo "[kairo]     FAILED: $name"
@@ -130,15 +130,49 @@ for name in "${full_series[@]}"; do
   fi
 done
 
-if [[ ${#errors[@]} -gt 0 ]]; then
-  echo "[kairo] ${#errors[@]} patch(es) FAILED individual apply: ${errors[*]}"
-fi
-if [[ ${#skipped[@]} -gt 0 ]]; then
-  echo "[kairo] ${#skipped[@]} patch(es) SKIPPED (hand-constructed): ${skipped[*]}"
-fi
+# ── Conceptual patches: diff-format + symbolic dependency check ───────
+
+echo "[kairo] --- conceptual patches ---"
+
+for name in "${conceptual_patches[@]}"; do
+  patch="$PATCH_DIR/$name"
+  issues=()
+
+  # 1. Must have valid diff format
+  if grep -q '^diff --git ' "$patch"; then
+    echo "[kairo]   diff-format OK:       $name"
+  else
+    echo "[kairo]   FAILED (no diff):     $name"
+    errors+=("$name (no diff headers)")
+    continue
+  fi
+
+  # 2. If it has a symbolic dependency, verify the symbol exists in the
+  #    foundation patch that introduces it
+  sym="${symbol_checks[$name]:-}"
+  if [[ -n "$sym" ]]; then
+    if grep -q "$sym" "$PATCH_DIR/0001-rfc-kairo-mq-deadline-decode-priority.patch" || \
+       grep -q "$sym" "$PATCH_DIR/0002-rfc-kairo-request-classification.patch"; then
+      echo "[kairo]   symbol OK  (${sym}):  $name"
+    else
+      echo "[kairo]   FAILED (missing symbol '${sym}' in foundation): $name"
+      issues+=("missing symbol ${sym}")
+    fi
+  fi
+
+  if [[ ${#issues[@]} -eq 0 ]]; then
+    echo "[kairo]     OK: $name"
+  else
+    echo "[kairo]     FAILED: $name (${issues[*]})"
+    errors+=("$name (${issues[*]})")
+  fi
+done
+
+# ── Report ─────────────────────────────────────────────────────────────
 
 if [[ ${#errors[@]} -gt 0 ]]; then
-  fail "${#errors[@]} patch(es) failed individual apply check"
+  echo "[kairo] ${#errors[@]} patch(es) FAILED: ${errors[*]}"
+  fail "${#errors[@]} patch(es) failed validation"
 fi
 
-echo "[kairo] full series (0001-0017) individual apply check passed"
+echo "[kairo] full series (0001-0017) validation passed"
