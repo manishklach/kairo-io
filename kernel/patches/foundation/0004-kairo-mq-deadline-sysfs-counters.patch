@@ -2,7 +2,7 @@ diff --git a/block/mq-deadline.c b/block/mq-deadline.c
 index 2d26bef..9a2c478 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -649,6 +655,22 @@ static void dd_kairo_note_demotion_observations(struct deadline_data *dd,
+@@ -896,6 +902,22 @@ static void dd_kairo_note_demotion_observations(struct deadline_data *dd,
  	}
  }
  
@@ -25,7 +25,7 @@ index 2d26bef..9a2c478 100755
  static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd,
  							unsigned long latest_start)
  {
-@@ -779,17 +801,22 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -1040,17 +1056,22 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  		goto unlock;
  	}
  
@@ -39,18 +39,18 @@ index 2d26bef..9a2c478 100755
  		goto unlock;
 +	}
  
- /*
-  * Next, dispatch requests in priority order. Ignore lower priority
-  * requests if any higher priority requests are pending.
-  * Kairo decode and Kairo prefetch already had their opportunity above,
-  * so keep the normal RT/BE/IDLE mq-deadline order for all remaining
-  * traffic, including non-Kairo RT requests.
-  */
- for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
+ 	/*
+ 	 * Next, dispatch requests in priority order. Ignore lower priority
+ 	 * requests if any higher priority requests are pending.
+ 	 * Kairo decode and Kairo prefetch already had their opportunity above,
+ 	 * so keep the normal RT/BE/IDLE mq-deadline order for all remaining
+ 	 * traffic, including non-Kairo RT requests.
+ 	 */
+ 	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
  	rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
  	if (rq || dd_queued(dd, prio))
  		break;
-@@ -797,16 +824,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -1058,16 +1079,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	}
  
  	if (rq) {
@@ -68,7 +68,7 @@ index 2d26bef..9a2c478 100755
  	}
  
  unlock:
-@@ -1186,6 +1204,138 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
+@@ -1447,6 +1459,138 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
  #undef SHOW_INT
  #undef SHOW_JIFFIES
  
@@ -188,7 +188,7 @@ index 2d26bef..9a2c478 100755
  #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
  static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
  {									\
-@@ -1217,8 +1367,67 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
+@@ -1478,8 +1622,67 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
  #undef STORE_INT
  #undef STORE_JIFFIES
  
