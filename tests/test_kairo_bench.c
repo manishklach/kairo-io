@@ -67,34 +67,58 @@ static void test_merge_hostile_defaults(void)
 static void test_backend_summary_helpers(void)
 {
     struct kairo_config cfg;
+    struct kairo_backend_model model;
 
     set_defaults(&cfg);
-    assert(strcmp(kairo_backend_class_name(&cfg), "KAIRO_BACKEND_NONE") == 0);
-    assert(kairo_backend_stream_id(&cfg) == 0);
-    assert(kairo_backend_fdp_placement_id(&cfg) == 0);
-    assert(kairo_backend_zone_hint(&cfg) == 0);
-    assert(kairo_backend_noop_fallback(&cfg) == true);
+    model = kairo_compute_backend_model(&cfg);
+    assert(strcmp(model.class_name, "KAIRO_BACKEND_NONE") == 0);
+    assert(model.stream_id == 0);
+    assert(strcmp(model.stream_id_span, "none") == 0);
+    assert(model.fdp_placement_id == 0);
+    assert(strcmp(model.fdp_placement_span, "none") == 0);
+    assert(model.zone_hint == 0);
+    assert(model.noop_fallback == true);
 
     cfg.backend_mode = KAIRO_BACKEND_MODE_STREAMS;
     cfg.lifetime_class = KAIRO_USER_LIFE_MODEL;
     cfg.fixed_placement_group = 7;
-    assert(strcmp(kairo_backend_class_name(&cfg), "KAIRO_BACKEND_MODEL_LOCAL") == 0);
-    assert(kairo_backend_stream_id(&cfg) == 7);
-    assert(kairo_backend_noop_fallback(&cfg) == false);
+    model = kairo_compute_backend_model(&cfg);
+    assert(strcmp(model.class_name, "KAIRO_BACKEND_MODEL_LOCAL") == 0);
+    assert(model.stream_id == 7);
+    assert(strcmp(model.stream_id_span, "fixed-placement-group") == 0);
+    assert(model.noop_fallback == false);
 
     cfg.backend_mode = KAIRO_BACKEND_MODE_FDP;
     cfg.fixed_placement_group = 0;
     cfg.fixed_cache_pool_id = 11;
-    assert(kairo_backend_fdp_placement_id(&cfg) == 11);
+    model = kairo_compute_backend_model(&cfg);
+    assert(model.fdp_placement_id == 11);
+    assert(strcmp(model.fdp_placement_span, "fixed-cache-pool") == 0);
+
+    cfg.backend_mode = KAIRO_BACKEND_MODE_STREAMS;
+    cfg.fixed_cache_pool_id = 0;
+    cfg.fixed_placement_group = 0;
+    cfg.placement_groups = 8;
+    model = kairo_compute_backend_model(&cfg);
+    assert(model.stream_id == 0);
+    assert(strcmp(model.stream_id_span, "distributed-placement-groups") == 0);
+
+    cfg.backend_mode = KAIRO_BACKEND_MODE_FDP;
+    cfg.cache_pools = 4;
+    model = kairo_compute_backend_model(&cfg);
+    assert(model.fdp_placement_id == 0);
+    assert(strcmp(model.fdp_placement_span, "distributed-cache-pools") == 0);
 
     cfg.backend_mode = KAIRO_BACKEND_MODE_ZNS;
     cfg.lifetime_class = KAIRO_USER_LIFE_SESSION;
-    assert(kairo_backend_zone_hint(&cfg) == KAIRO_USER_LIFE_SESSION);
+    model = kairo_compute_backend_model(&cfg);
+    assert(model.zone_hint == KAIRO_USER_LIFE_SESSION);
 
     cfg.backend_mode = KAIRO_BACKEND_MODE_NONE;
     cfg.recompute_ok = true;
     cfg.lifetime_class = KAIRO_USER_LIFE_NONE;
-    assert(strcmp(kairo_backend_class_name(&cfg), "KAIRO_BACKEND_NONE") == 0);
+    model = kairo_compute_backend_model(&cfg);
+    assert(strcmp(model.class_name, "KAIRO_BACKEND_NONE") == 0);
 }
 
 int main(void)

@@ -39,6 +39,15 @@ usage() {
   exit 0
 }
 
+resolve_path() {
+  local path="$1"
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s/%s\n' "$PWD" "$path"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --duration) DURATION="$2"; shift 2 ;;
@@ -75,7 +84,7 @@ fi
 
 # ---- locate benchmark ----
 if [[ -n "${BENCH_OVERRIDE:-}" ]]; then
-  BENCH="$BENCH_OVERRIDE"
+  BENCH="$(resolve_path "$BENCH_OVERRIDE")"
 elif [[ -x "$REPO_ROOT/kairo_bench" ]]; then
   BENCH="$REPO_ROOT/kairo_bench"
 elif [[ -x "$REPO_ROOT/bench/kairo_bench" ]]; then
@@ -83,6 +92,11 @@ elif [[ -x "$REPO_ROOT/bench/kairo_bench" ]]; then
 else
   echo "ERROR: benchmark binary not found (tried ./kairo_bench, bench/kairo_bench)" >&2
   echo "Build with: make" >&2
+  exit 1
+fi
+
+if [[ ! -x "$BENCH" ]]; then
+  echo "ERROR: benchmark binary is not executable: $BENCH" >&2
   exit 1
 fi
 

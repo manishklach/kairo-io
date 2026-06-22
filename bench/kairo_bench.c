@@ -293,7 +293,9 @@ static enum kairo_backend_mode parse_backend_mode(const char *value)
 struct kairo_backend_model {
     const char *class_name;
     unsigned int stream_id;
+    const char *stream_id_span;
     unsigned int fdp_placement_id;
+    const char *fdp_placement_span;
     unsigned int zone_hint;
     bool noop_fallback;
 };
@@ -326,6 +328,8 @@ kairo_compute_backend_model(const struct kairo_config *cfg)
     }
 
     m.class_name = class_name;
+    m.stream_id_span = "none";
+    m.fdp_placement_span = "none";
     m.stream_id = (cfg->backend_mode == KAIRO_BACKEND_MODE_STREAMS)
         ? (cfg->fixed_placement_group > 0 ? cfg->fixed_placement_group
            : cfg->fixed_cache_pool_id > 0 ? cfg->fixed_cache_pool_id
@@ -337,6 +341,29 @@ kairo_compute_backend_model(const struct kairo_config *cfg)
     m.zone_hint = (cfg->backend_mode == KAIRO_BACKEND_MODE_ZNS)
         ? (unsigned int)cfg->lifetime_class : 0;
     m.noop_fallback = (cfg->backend_mode == KAIRO_BACKEND_MODE_NONE);
+
+    if (cfg->backend_mode == KAIRO_BACKEND_MODE_STREAMS) {
+        if (cfg->fixed_placement_group > 0)
+            m.stream_id_span = "fixed-placement-group";
+        else if (cfg->fixed_cache_pool_id > 0)
+            m.stream_id_span = "fixed-cache-pool";
+        else if (cfg->placement_groups > 1)
+            m.stream_id_span = "distributed-placement-groups";
+        else if (cfg->cache_pools > 1)
+            m.stream_id_span = "distributed-cache-pools";
+    }
+
+    if (cfg->backend_mode == KAIRO_BACKEND_MODE_FDP) {
+        if (cfg->fixed_cache_pool_id > 0)
+            m.fdp_placement_span = "fixed-cache-pool";
+        else if (cfg->fixed_placement_group > 0)
+            m.fdp_placement_span = "fixed-placement-group";
+        else if (cfg->cache_pools > 1)
+            m.fdp_placement_span = "distributed-cache-pools";
+        else if (cfg->placement_groups > 1)
+            m.fdp_placement_span = "distributed-placement-groups";
+    }
+
     return m;
 }
 
@@ -1250,7 +1277,9 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
         printf("backend_mode=%s\n", kairo_backend_mode_name(cfg->backend_mode));
         printf("backend_class=%s\n", m.class_name);
         printf("stream_id=%u\n", m.stream_id);
+        printf("stream_id_span=%s\n", m.stream_id_span);
         printf("fdp_placement_id=%u\n", m.fdp_placement_id);
+        printf("fdp_placement_span=%s\n", m.fdp_placement_span);
         printf("zone_hint=%u\n", m.zone_hint);
         printf("backend_noop_fallback=%s\n",
                m.noop_fallback ? "true" : "false");

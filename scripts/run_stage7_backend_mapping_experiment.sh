@@ -37,6 +37,15 @@ usage() {
   exit 0
 }
 
+resolve_path() {
+  local path="$1"
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s/%s\n' "$PWD" "$path"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --duration) DURATION="$2"; shift 2 ;;
@@ -70,7 +79,9 @@ if ! $SKIP_COUNTERS && [[ -z "$BLOCK_DEVICE" ]]; then
 fi
 
 BENCH="${BENCH_OVERRIDE:-}"
-if [[ -z "$BENCH" ]]; then
+if [[ -n "$BENCH" ]]; then
+  BENCH="$(resolve_path "$BENCH")"
+else
   if [[ -x "$REPO_ROOT/kairo_bench" ]]; then
     BENCH="$REPO_ROOT/kairo_bench"
   elif [[ -x "$REPO_ROOT/bench/kairo_bench" ]]; then
@@ -79,6 +90,11 @@ if [[ -z "$BENCH" ]]; then
     echo "ERROR: benchmark binary not found" >&2
     exit 1
   fi
+fi
+
+if [[ ! -x "$BENCH" ]]; then
+  echo "ERROR: benchmark binary is not executable: $BENCH" >&2
+  exit 1
 fi
 
 COLLECT="$SCRIPT_DIR/collect_kairo_counters.sh"
@@ -198,7 +214,9 @@ generate_summary() {
     echo "backend_mode=$(extract backend_mode)"
     echo "backend_class=$(extract backend_class)"
     echo "stream_id=$(extract stream_id)"
+    echo "stream_id_span=$(extract stream_id_span)"
     echo "fdp_placement_id=$(extract fdp_placement_id)"
+    echo "fdp_placement_span=$(extract fdp_placement_span)"
     echo "zone_hint=$(extract zone_hint)"
     echo "backend_noop_fallback=$(extract backend_noop_fallback)"
     echo "bench_exit_code=$(extract bench_exit_code)"
@@ -249,7 +267,7 @@ all_counter_delta_names=(
   kairo_backend_persistent_delta
 )
 
-csv_header="case,backend_mode,backend_class,stream_id,fdp_placement_id,zone_hint,backend_noop_fallback,bench_exit_code,models,sessions,cache_pools,placement_groups,lifetime,recompute_ok,semantic_mode,hint_mode,decode_p99_us,decode_p95_us,decode_avg_us,write_MBps,decode_read_MBps,prefetch_read_MBps,total_evictions"
+csv_header="case,backend_mode,backend_class,stream_id,stream_id_span,fdp_placement_id,fdp_placement_span,zone_hint,backend_noop_fallback,bench_exit_code,models,sessions,cache_pools,placement_groups,lifetime,recompute_ok,semantic_mode,hint_mode,decode_p99_us,decode_p95_us,decode_avg_us,write_MBps,decode_read_MBps,prefetch_read_MBps,total_evictions"
 for dname in "${all_counter_delta_names[@]}"; do
   csv_header="$csv_header,$dname"
 done

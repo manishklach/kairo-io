@@ -144,8 +144,12 @@ jobs:
             echo "" >> "$results"
           done
           echo "[kairo] checkpatch.pl results written to $results"
-          # Print summary of errors/warnings
-          grep -cE "^(ERROR|WARNING):" "$results" || true
+          issue_count="$(grep -cE "^(ERROR|WARNING):" "$results" || true)"
+          echo "[kairo] checkpatch issue count: $issue_count"
+          if [[ "$issue_count" != "0" ]]; then
+            cat "$results"
+            exit 1
+          fi
 
       - name: Install build dependencies
         shell: bash
