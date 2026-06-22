@@ -43,10 +43,14 @@ required_support_files=(
   "$FOUNDATION_DIR/README.md"
   "$REPO_ROOT/docs/kernel_foundation_stack.md"
   "$REPO_ROOT/docs/kernel_foundation_invariants.md"
+  "$REPO_ROOT/docs/validation_snapshot.md"
   "$REPO_ROOT/kernel/integration/linux-6.8/apply_foundation_stack.sh"
   "$REPO_ROOT/kernel/integration/linux-6.8/validate_foundation_stack.sh"
   "$REPO_ROOT/kernel/integration/linux-6.8/build_foundation_objects.sh"
   "$REPO_ROOT/kernel/integration/linux-6.8/smoke_foundation_stack.sh"
+  "$REPO_ROOT/scripts/check_wsl_environment.sh"
+  "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh"
+  "$REPO_ROOT/scripts/parse_validation_snapshot.py"
 )
 
 for patch in "${required_broad_patches[@]}"; do
@@ -317,6 +321,14 @@ stage8_has_pattern "$AUDIT_TP" "kairo_request_classified"
 stage8_has_pattern "$BT_LATENCY" "kairo_decode_dispatch"
 stage8_has_pattern "$BT_DISPATCH" "kairo_scheduler_decision"
 stage8_has_pattern "$BT_BACKEND" "kairo_backend_mapped"
+
+# Stage 9: verify WSL validation files
+[[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
+[[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"
+[[ -f "$REPO_ROOT/scripts/parse_validation_snapshot.py" ]] || fail "Stage 9: missing scripts/parse_validation_snapshot.py"
+[[ -f "$REPO_ROOT/docs/validation_snapshot.md" ]] || fail "Stage 9: missing docs/validation_snapshot.md"
+grep -qF -- "run_wsl_validation_snapshot.sh" "$REPO_ROOT/README.md" || \
+  fail "Stage 9: README missing run_wsl_validation_snapshot.sh reference"
 
 # Stage 9+: verify new supernova patches 0010-0016
 stage9_has_pattern() {

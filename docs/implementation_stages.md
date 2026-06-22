@@ -210,3 +210,21 @@ framework:
   - all tracepoints (not stable ABI)
   - bpftrace script compatibility across kernel versions
   - end-to-end proof for the full ten-patch series
+
+## Stage 9
+
+- Status: tooling/validation layer
+- Scripts involved:
+  - `scripts/check_wsl_environment.sh`
+  - `scripts/run_wsl_validation_snapshot.sh`
+  - `scripts/parse_validation_snapshot.py`
+- What should validate:
+  - WSL-friendly repo validation
+  - benchmark build
+  - dry-run experiment validation
+  - smoke benchmark execution
+  - generated validation snapshot evidence packaging
+- What is still RFC-only:
+  - custom kernel boot validation
+  - patched-kernel runtime counters
+  - physical NVMe placement claims

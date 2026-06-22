@@ -86,6 +86,14 @@
 | Python validator | implemented | `scripts/validate_stage7_backend_mapping.py` — checks 0008, docs, benchmark for required patterns |
 | Validator integration | implemented | `validate_patch_stack.sh` calls Python validator and checks Stage 7.5 files |
 
+## Stage 9 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| WSL validation snapshot | implemented | `scripts/run_wsl_validation_snapshot.sh` packages local WSL validation evidence and writes `docs/validation_snapshot.md` without overclaiming patched-kernel behavior |
+| WSL environment check | implemented | `scripts/check_wsl_environment.sh` reports environment and tool availability without requiring root |
+| Snapshot parser | implemented | `scripts/parse_validation_snapshot.py` renders Markdown and CSV from `summary.log` |
+
 ## Current Read
 
 The repo now has the shape of the full Kairo architecture, but the maturity is
@@ -96,6 +104,7 @@ intentionally uneven:
 - `0003`, `0006`, and `0007` remain scaffold-heavy earlier stages
 - `0004` remains an aggressive kernel RFC/POC path that still needs its own implement-then-validate cycle
 - `0008` is now a generic backend mapping scaffold with benchmark-visible output
+- Stage 9 packages local WSL validation evidence without claiming patched-kernel runtime behavior
 - the user-space harness can approximate decode, prefetch, prefill, eviction, and multisession pressure
 - the benchmark now supports merge-friendly and merge-hostile access patterns
 - the benchmark now also supports `--hint-mode ioprio|rwf|both` for Stage 4 experiments

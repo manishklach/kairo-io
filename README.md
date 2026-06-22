@@ -131,6 +131,22 @@ This preserves the full Kairo architecture direction, including:
 * generic NVMe backend mapping hooks,
 * and tracepoint observability.
 
+## Current Validation Snapshot
+
+Kairo includes a WSL-friendly validation runner:
+
+```bash
+./scripts/run_wsl_validation_snapshot.sh
+```
+
+This checks repository consistency, benchmark build, experiment harness
+dry-runs, and optional user-space benchmark smoke tests. It does not claim
+patched-kernel runtime validation.
+
+Latest snapshot:
+
+* [docs/validation_snapshot.md](docs/validation_snapshot.md)
+
 ---
 
 ## Why This Matters

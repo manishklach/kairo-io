@@ -46,10 +46,19 @@ usage() {
   exit 0
 }
 
+resolve_path() {
+  local path="$1"
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s/%s\n' "$PWD" "$path"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --duration) DURATION="$2"; shift 2 ;;
-    --bench) BENCH="$2"; shift 2 ;;
+    --bench) BENCH="$(resolve_path "$2")"; shift 2 ;;
     --results-dir) RESULTS_BASE="$2"; shift 2 ;;
     --hint-mode) HINT_MODE="$2"; shift 2 ;;
     --trace-mode) TRACE_MODE="$2"; shift 2 ;;
@@ -79,6 +88,10 @@ done
 
 if [[ -z "$FILE_PATH" || -z "$BLOCK_DEV" ]]; then
   usage
+fi
+
+if [[ ! "$BENCH" = /* ]]; then
+  BENCH="$(resolve_path "$BENCH")"
 fi
 
 RESULTS_DIR="$RESULTS_BASE/$TIMESTAMP"
@@ -123,11 +136,33 @@ dry_cmd() {
   fi
 }
 
-dry_cmd "mkdir -p \"$RESULTS_DIR/trace\""
-dry_cmd "mkdir -p \"$RESULTS_DIR/counters-before\""
-dry_cmd "mkdir -p \"$RESULTS_DIR/counters-after\""
+if ! $DRY_RUN; then
+  mkdir -p "$RESULTS_DIR/trace" "$RESULTS_DIR/counters-before" "$RESULTS_DIR/counters-after"
+fi
+
+if $DRY_RUN; then
+  info "Would create results under $RESULTS_DIR"
+else
+  info "Created results directory $RESULTS_DIR"
+fi
 
 # Save run metadata
+if $DRY_RUN; then
+  cat <<EOF
+stage=8
+timestamp=$TIMESTAMP
+file_path=$FILE_PATH
+block_dev=$BLOCK_DEV
+duration=$DURATION
+hint_mode=$HINT_MODE
+trace_mode=$TRACE_MODE
+tracepoints_available=$tracepoints_available
+bench=$BENCH
+results_dir=$RESULTS_DIR
+skip_counters=$SKIP_COUNTERS
+dry_run=$DRY_RUN
+EOF
+else
 cat > "$RESULTS_DIR/run_metadata.log" <<EOF
 stage=8
 timestamp=$TIMESTAMP
@@ -143,6 +178,7 @@ skip_counters=$SKIP_COUNTERS
 dry_run=$DRY_RUN
 EOF
 info "Run metadata saved to $RESULTS_DIR/run_metadata.log"
+fi
 
 # Save available trace events
 if $tracepoints_available; then
@@ -190,7 +226,7 @@ fi
 
 # Run benchmark
 bench_args=(
-  "$FILE_PATH"
+  "--file" "$FILE_PATH"
   "--duration" "$DURATION"
   "--hint-mode" "$HINT_MODE"
   "--backend-mode" "generic"
@@ -251,37 +287,41 @@ counter_collect "$RESULTS_DIR/counters-after"
 
 # Generate summary
 summary_file="$RESULTS_DIR/summary.log"
-{
-  echo "stage8_trace_experiment"
-  echo "timestamp=$TIMESTAMP"
-  echo "file_path=$FILE_PATH"
-  echo "block_dev=$BLOCK_DEV"
-  echo "duration=$DURATION"
-  echo "hint_mode=$HINT_MODE"
-  echo "trace_mode=$TRACE_MODE"
-  echo "tracepoints_available=$tracepoints_available"
-  echo "results_dir=$RESULTS_DIR"
+if $DRY_RUN; then
+  info "Dry run complete; summary files were not written."
+else
+  {
+    echo "stage8_trace_experiment"
+    echo "timestamp=$TIMESTAMP"
+    echo "file_path=$FILE_PATH"
+    echo "block_dev=$BLOCK_DEV"
+    echo "duration=$DURATION"
+    echo "hint_mode=$HINT_MODE"
+    echo "trace_mode=$TRACE_MODE"
+    echo "tracepoints_available=$tracepoints_available"
+    echo "results_dir=$RESULTS_DIR"
 
-  if [[ -f "$RESULTS_DIR/benchmark.log" ]]; then
-    grep -E "^(decode_|prefetch_|write_|evict_|backend_|ioprio_|rwf_)" \
-      "$RESULTS_DIR/benchmark.log" || true
-  fi
-} > "$summary_file"
+    if [[ -f "$RESULTS_DIR/benchmark.log" ]]; then
+      grep -E "^(decode_|prefetch_|write_|evict_|backend_|ioprio_|rwf_)" \
+        "$RESULTS_DIR/benchmark.log" || true
+    fi
+  } > "$summary_file"
 
-# Generate CSV summary
-csv_file="$RESULTS_DIR/summary.csv"
-{
-  echo "event,value"
-  echo "tracepoints_available,$tracepoints_available"
-  if [[ -f "$RESULTS_DIR/benchmark.log" ]]; then
-    grep -E "^(decode_|prefetch_|write_|evict_|backend_|ioprio_|rwf_)" \
-      "$RESULTS_DIR/benchmark.log" | sed 's/^/=/' | tr '=' ',' || true
-  fi
-} > "$csv_file"
+  # Generate CSV summary
+  csv_file="$RESULTS_DIR/summary.csv"
+  {
+    echo "event,value"
+    echo "tracepoints_available,$tracepoints_available"
+    if [[ -f "$RESULTS_DIR/benchmark.log" ]]; then
+      grep -E "^(decode_|prefetch_|write_|evict_|backend_|ioprio_|rwf_)" \
+        "$RESULTS_DIR/benchmark.log" | sed 's/^/=/' | tr '=' ',' || true
+    fi
+  } > "$csv_file"
 
-info "Results saved to $RESULTS_DIR"
-info "Summary: $summary_file"
-info "CSV: $csv_file"
+  info "Results saved to $RESULTS_DIR"
+  info "Summary: $summary_file"
+  info "CSV: $csv_file"
+fi
 
 if [[ "$TRACE_MODE" == "none" ]]; then
   info "Tracepoints were not available. Run on a patched kernel for trace data."

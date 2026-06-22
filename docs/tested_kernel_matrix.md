@@ -5,6 +5,15 @@
 | Linux 6.8.12 | passed | passed | passed | passed | failed | pending | pending | pending | `scripts/validate_patch_stack.sh`, `apply_foundation_stack.sh`, and `validate_foundation_stack.sh` passed on the local `linux-6.8.12-min` tree. The direct patched `block/mq-deadline.o` build passed. The combined `block/blk-mq.o block/mq-deadline.o` path failed on local `blk-mq.o` `struct blk_plug` member errors that also reproduced outside the Kairo foundation path. Boot and runtime validation remain unrun. |
 | Linux 6.8.x (additional trees) | pending | not run | not run | not run | not run | pending | pending | pending | add rows as local validation expands |
 
+## WSL Validation Scope
+
+- Environment: WSL
+- Kernel: detected dynamically
+- Scope: repo validation + benchmark build + dry-run harness + optional user-space smoke benchmark
+- Custom kernel boot: not applicable / not run
+- Kairo sysfs counters: not available unless a patched kernel is running
+- Physical NVMe placement: not validated
+
 ## Stage 7.5 Status
 
 Stage 7.5 (NVMe hook audit and mapping hardening) is a metadata-level
