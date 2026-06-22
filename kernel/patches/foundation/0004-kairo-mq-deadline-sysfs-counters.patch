@@ -2,7 +2,7 @@ diff --git a/block/mq-deadline.c b/block/mq-deadline.c
 index 2d26bef..9a2c478 100755
 --- a/block/mq-deadline.c
 +++ b/block/mq-deadline.c
-@@ -884,6 +890,22 @@ static void dd_kairo_note_demotion_observations(struct deadline_data *dd,
+@@ -649,6 +655,22 @@ static void dd_kairo_note_demotion_observations(struct deadline_data *dd,
  	}
  }
  
@@ -25,7 +25,7 @@ index 2d26bef..9a2c478 100755
  static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd,
  							unsigned long latest_start)
  {
-@@ -1014,17 +1036,22 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+@@ -779,17 +801,22 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  		goto unlock;
  	}
  
@@ -47,10 +47,10 @@ index 2d26bef..9a2c478 100755
  	 * traffic, including non-Kairo RT requests.
  	 */
  	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
- 	rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
- 	if (rq || dd_queued(dd, prio))
- 		break;
-@@ -1032,16 +1059,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 		rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
+ 		if (rq || dd_queued(dd, prio))
+ 			break;
+@@ -797,16 +824,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	}
  
  	if (rq) {
@@ -68,7 +68,7 @@ index 2d26bef..9a2c478 100755
  	}
  
  unlock:
-@@ -1421,6 +1439,138 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
+@@ -1186,6 +1204,138 @@ SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
  #undef SHOW_INT
  #undef SHOW_JIFFIES
  
@@ -188,7 +188,7 @@ index 2d26bef..9a2c478 100755
  #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
  static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
  {									\
-@@ -1452,8 +1602,67 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
+@@ -1217,8 +1367,67 @@ STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
  #undef STORE_INT
  #undef STORE_JIFFIES
  
@@ -253,7 +253,7 @@ index 2d26bef..9a2c478 100755
  
  static struct elv_fs_entry deadline_attrs[] = {
  	DD_ATTR(read_expire),
-@@ -1463,6 +1672,22 @@ static struct elv_fs_entry deadline_attrs[] = {
+@@ -1228,6 +1437,22 @@ static struct elv_fs_entry deadline_attrs[] = {
  	DD_ATTR(async_depth),
  	DD_ATTR(fifo_batch),
  	DD_ATTR(prio_aging_expire),
