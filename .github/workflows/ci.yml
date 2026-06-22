@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.LINUX_CACHE_DIR }}
-          key: linux-src-${{ env.LINUX_REF }}-sparse-v2
+          key: linux-src-${{ env.LINUX_REF }}-sparse-v3
 
       - name: Fetch pinned Linux 6.8.12 source tree
         shell: bash
@@ -61,6 +61,7 @@ jobs:
             io_uring/ \
             mm/ \
             scripts/ \
+            /arch/Kconfig \
             arch/x86/ \
             arch/arm64/ \
             kernel/ \
