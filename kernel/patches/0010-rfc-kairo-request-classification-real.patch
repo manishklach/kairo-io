@@ -106,7 +106,7 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index 73b9f2d..9028a1c 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +/*
 + * KAIRO_HINT_MERGE_SUCCESS should only be set when two classified
 + * requests of the same io_class actually merge. This prevents

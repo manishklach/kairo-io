@@ -28,7 +28,7 @@ diff --git a/include/uapi/linux/io_uring.h b/include/uapi/linux/io_uring.h
 index 912a5e8..f6c2b7d 100755
 --- a/include/uapi/linux/io_uring.h
 +++ b/include/uapi/linux/io_uring.h
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +/*
 + * Kairo per-IO classification flag.
 + *
@@ -54,7 +54,7 @@ diff --git a/io_uring/io_uring.c b/io_uring/io_uring.c
 index d8f6e0a..b1c3f7a 100755
 --- a/io_uring/io_uring.c
 +++ b/io_uring/io_uring.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +/*
 + * Kairo SQE hint propagation.
 + *

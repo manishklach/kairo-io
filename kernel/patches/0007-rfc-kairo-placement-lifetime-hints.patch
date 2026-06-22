@@ -31,7 +31,7 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index f190ccd..d20ef19 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +enum kairo_io_class {
 +	KAIRO_IO_NONE = 0,
 +	KAIRO_IO_DECODE_READ,
@@ -126,7 +126,7 @@ diff --git a/block/blk-mq.c b/block/blk-mq.c
 index 1297dde..8ed990a 100644
 --- a/block/blk-mq.c
 +++ b/block/blk-mq.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +static void blk_mq_kairo_default_placement(struct request *rq)
 +{
 +	struct kairo_placement_hint *hint = &rq->kairo_hints.placement;
@@ -139,7 +139,7 @@ index 1297dde..8ed990a 100644
 +	hint->lifetime_class = KAIRO_LIFE_NONE;
 +	hint->recompute_ok = false;
 +}
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
  void blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data, struct request *rq)
  {
  	blk_mq_kairo_init_request(rq);

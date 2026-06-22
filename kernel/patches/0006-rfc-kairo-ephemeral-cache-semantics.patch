@@ -47,13 +47,13 @@ diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index f4bb333..f5cc444 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +#define KAIRO_HINT_RECOMPUTABLE         BIT(4)
 +#define KAIRO_HINT_EPHEMERAL            BIT(5)
 +#define KAIRO_HINT_NO_STRONG_DURABILITY BIT(6)
 +#define KAIRO_HINT_AVOID_PAGECACHE      BIT(7)
 +#define KAIRO_HINT_EVICT_CLEANUP        BIT(8)
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +static inline bool kairo_is_recomputable(struct request *rq)
 +{
 +	return rq->kairo_hints.flags & KAIRO_HINT_RECOMPUTABLE;
@@ -83,7 +83,7 @@ diff --git a/include/linux/fs.h b/include/linux/fs.h
 index 7d44b22..9341c70 100644
 --- a/include/linux/fs.h
 +++ b/include/linux/fs.h
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +#define IOCB_KAIRO_RECOMPUTABLE   BIT_ULL(41)
 +#define IOCB_KAIRO_EPHEMERAL      BIT_ULL(42)
 +#define IOCB_KAIRO_NO_DURABILITY  BIT_ULL(43)
@@ -94,7 +94,7 @@ diff --git a/fs/open.c b/fs/open.c
 index 8d11221..8d112ff 100644
 --- a/fs/open.c
 +++ b/fs/open.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +/*
 + * Local Kairo RFC/POC:
 + * session-scoped KV-cache files may be opened with semantic intent that later
@@ -106,7 +106,7 @@ diff --git a/fs/fcntl.c b/fs/fcntl.c
 index 81a1c22..34f1c9d 100644
 --- a/fs/fcntl.c
 +++ b/fs/fcntl.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +#define F_SET_KAIRO_EPHEMERAL      (F_LINUX_SPECIFIC_BASE + 14)
 +#define F_SET_KAIRO_RECOMPUTABLE   (F_LINUX_SPECIFIC_BASE + 15)
 +#define F_SET_KAIRO_NO_DURABILITY  (F_LINUX_SPECIFIC_BASE + 16)
@@ -117,7 +117,7 @@ index 81a1c22..34f1c9d 100644
 + * Local RFC/POC only:
 + * these are experiment controls for Kairo validation, not stable user ABI.
 + */
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +	case F_SET_KAIRO_EPHEMERAL:
 +		filp->f_mode |= FMODE_KAIRO_EPHEMERAL;
 +		return 0;
@@ -129,7 +129,7 @@ diff --git a/mm/filemap.c b/mm/filemap.c
 index 3c1921d..fc3ba71 100644
 --- a/mm/filemap.c
 +++ b/mm/filemap.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +	/*
 +	 * KAIRO_AVOID_PAGECACHE:
 +	 * prefer direct I/O or low-cache-pollution paths where supported, but
@@ -150,7 +150,7 @@ diff --git a/block/blk-core.c b/block/blk-core.c
 index b3408a1..a0e6c10 100644
 --- a/block/blk-core.c
 +++ b/block/blk-core.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +	/*
 +	 * Stage 5 local RFC/POC:
 +	 * copy semantic intent into request metadata so later scheduling,
@@ -174,7 +174,7 @@ diff --git a/block/blk-mq.c b/block/blk-mq.c
 index 74c2142..84c3153 100644
 --- a/block/blk-mq.c
 +++ b/block/blk-mq.c
-@@ -0,0 +0,0 @@
+@@ -1 +1 @@
 +	/*
 +	 * KAIRO_NO_STRONG_DURABILITY:
 +	 * do not issue extra flush/FUA-like behavior solely because the data is
