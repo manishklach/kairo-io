@@ -25,14 +25,23 @@ and compile target for Linux 6.8.x.
 
 - `apply_foundation_stack.sh`
   - verifies the Linux tree path and required files
+  - requires a Linux git checkout before applying patches
+  - refuses dirty trees unless `--force` is passed
   - runs `git apply --check` for every foundation patch
+  - supports `--check-only` for a non-mutating dry run
   - applies the stack only if every check succeeds
 - `validate_foundation_stack.sh`
+  - reports the Linux tree commit when available
   - checks that the expected Kairo symbols exist in the patched Linux tree
 - `build_foundation_objects.sh`
+  - reports the Linux tree commit when available
+  - supports `--check-only` to print the local build path
   - runs `make olddefconfig`
   - first attempts `block/blk-mq.o block/mq-deadline.o`
   - reports fallback commands clearly if the local Linux tree rejects that path
+- `smoke_foundation_stack.sh`
+  - chains the metadata checks, dry-run apply checks, optional symbol
+    validation, and optional object build into one non-mutating smoke test
 - `patch_apply_notes.md`
   - records the local Linux 6.8 validation path and actual outcomes
 
@@ -40,9 +49,10 @@ and compile target for Linux 6.8.x.
 
 ```bash
 ./scripts/validate_patch_stack.sh
-./kernel/integration/linux-6.8/apply_foundation_stack.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/smoke_foundation_stack.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/apply_foundation_stack.sh --check-only /path/to/linux-6.8.x
 ./kernel/integration/linux-6.8/validate_foundation_stack.sh /path/to/linux-6.8.x
-./kernel/integration/linux-6.8/build_foundation_objects.sh /path/to/linux-6.8.x
+./kernel/integration/linux-6.8/build_foundation_objects.sh --check-only /path/to/linux-6.8.x
 ```
 
 If the patched kernel later boots successfully, continue with the runtime and
@@ -53,6 +63,6 @@ benchmark validators:
 ./scripts/run_ab_experiment.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
-See [expected_sysfs.md](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/integration/linux-6.8/expected_sysfs.md)
+See [expected_sysfs.md](expected_sysfs.md)
 for the expected scheduler files once the patched kernel is booted and
 `mq-deadline` is selected.

@@ -73,6 +73,8 @@ when they are close to their deadline.
 - `kairo_prefetch_deadline_us` defines the urgency window
 - `dd_kairo_prefetch_deadline_near()` compares the request hint deadline with
   `ktime_get_ns()`
+- if no explicit deadline exists, prefetch stays on the budget-controlled path
+  and does not count as a deadline hit
 - prefetch dispatch is allowed only when no decode read is queued
 
 This keeps prefetch from preempting decode while still giving it a bounded path
@@ -83,10 +85,11 @@ forward.
 Prefill writes remain dispatchable, but the foundation stack tracks when they
 lose priority to decode or urgent prefetch work.
 
-- `dd_kairo_should_demote_prefill()` determines whether queued prefill writes
-  are being deferred by higher-priority work
+- `dd_kairo_should_observe_prefill_demotion()` determines whether queued
+  prefill writes are being deferred by higher-priority work
 - `kairo_prefill_dispatches` counts prefill writes that do get issued
-- `kairo_prefill_demotions` counts observed deferral opportunities
+- `kairo_prefill_demotion_observations` counts per-dispatch observed deferral
+  opportunities
 
 The policy is accounting-oriented. It does not block writes indefinitely.
 
@@ -95,9 +98,10 @@ The policy is accounting-oriented. It does not block writes indefinitely.
 Eviction traffic maps to `KAIRO_IO_EVICT`.
 
 - discard and write-zeroes requests classify as evict traffic
-- `dd_kairo_should_demote_evict()` tracks when evict work is deferred behind
-  decode or urgent prefetch
-- `kairo_evict_dispatches` and `kairo_evict_demotions` expose both behaviors
+- `dd_kairo_should_observe_evict_demotion()` tracks when evict work is
+  deferred behind decode or urgent prefetch
+- `kairo_evict_dispatches` and `kairo_evict_demotion_observations` expose both
+  behaviors
 
 This makes eviction the lowest-priority Kairo class in the foundation stack.
 
@@ -132,9 +136,9 @@ Counters:
 - `kairo_prefetch_deadline_hits`
 - `kairo_prefetch_budget_skips`
 - `kairo_prefill_dispatches`
-- `kairo_prefill_demotions`
+- `kairo_prefill_demotion_observations`
 - `kairo_evict_dispatches`
-- `kairo_evict_demotions`
+- `kairo_evict_demotion_observations`
 - `kairo_normal_dispatches`
 - `kairo_starvation_escapes`
 

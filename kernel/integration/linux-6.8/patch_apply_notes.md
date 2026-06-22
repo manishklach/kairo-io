@@ -32,6 +32,11 @@ The foundation patch context was aligned against a real Linux 6.8.12 tree.
 
 ## Validation Log
 
+- fresh sparse git clone of `gregkh/linux` at `v6.8.12` (`6324283`)
+  - `scripts/validate_patch_stack.sh <tree>`
+  - result: passed
+  - `kernel/integration/linux-6.8/apply_foundation_stack.sh --check-only <tree>`
+  - result: passed
 - `scripts/validate_patch_stack.sh /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min`
   - result: passed
 - `kernel/integration/linux-6.8/apply_foundation_stack.sh /mnt/c/Users/ManishKL/Documents/Playground/kv-memory-intent/qemu_validation/workdir/linux-6.8.12-min`

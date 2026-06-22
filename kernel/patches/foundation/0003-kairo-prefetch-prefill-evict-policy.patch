@@ -27,9 +27,9 @@ index 82a979d..2d26bef 100755
 +	u64 kairo_prefetch_deadline_hits;
 +	u64 kairo_prefetch_budget_skips;
 +	u64 kairo_prefill_dispatches;
-+	u64 kairo_prefill_demotions;
++	u64 kairo_prefill_demotion_observations;
 +	u64 kairo_evict_dispatches;
-+	u64 kairo_evict_demotions;
++	u64 kairo_evict_demotion_observations;
  	u64 kairo_normal_dispatches;
  	u64 kairo_starvation_escapes;
  	unsigned int kairo_decode_budget_used;
@@ -52,6 +52,19 @@ index 82a979d..2d26bef 100755
 +	       now_ns + ((u64)kairo_prefetch_deadline_us * NSEC_PER_USEC);
 +}
 +
++static bool dd_kairo_has_urgent_prefetch(struct deadline_data *dd, u64 now_ns)
++{
++	struct dd_per_prio *per_prio = &dd->per_prio[DD_RT_PRIO];
++	struct request *rq;
++
++	list_for_each_entry(rq, &per_prio->fifo_list[DD_READ], queuelist) {
++		if (dd_kairo_prefetch_deadline_near(rq, now_ns))
++			return true;
++	}
++
++	return false;
++}
++
 +static bool dd_kairo_has_decode_read(struct deadline_data *dd)
 +{
 +	struct dd_per_prio *per_prio = &dd->per_prio[DD_RT_PRIO];
@@ -65,37 +78,43 @@ index 82a979d..2d26bef 100755
 +	return false;
 +}
 +
-+static bool dd_kairo_should_demote_prefill(struct deadline_data *dd,
-+					   struct request *rq)
++static bool dd_kairo_should_observe_prefill_demotion(
++	struct deadline_data *dd, struct request *rq, u64 now_ns)
 +{
 +	return kairo_is_prefill_write(rq) &&
 +	       (dd_kairo_has_decode_read(dd) ||
-+		dd->kairo_prefetch_deadline_hits > dd->kairo_prefetch_dispatches);
++		dd_kairo_has_urgent_prefetch(dd, now_ns));
 +}
 +
-+static bool dd_kairo_should_demote_evict(struct deadline_data *dd,
-+					 struct request *rq)
++static bool dd_kairo_should_observe_evict_demotion(
++	struct deadline_data *dd, struct request *rq, u64 now_ns)
 +{
 +	return kairo_is_evict(rq) &&
 +	       (dd_kairo_has_decode_read(dd) ||
-+		dd->kairo_prefetch_deadline_hits > dd->kairo_prefetch_dispatches);
++		dd_kairo_has_urgent_prefetch(dd, now_ns));
 +}
 +
-+static void dd_kairo_note_demotions(struct deadline_data *dd)
++static void dd_kairo_note_demotion_observations(struct deadline_data *dd,
++						u64 now_ns)
 +{
 +	struct request *rq;
 +	enum dd_prio prio;
 +
++	/*
++	 * These counters record per-dispatch observations that queued
++	 * background work lost priority to decode or urgent prefetch.
++	 * They are not unique request counts.
++	 */
 +	for (prio = DD_BE_PRIO; prio <= DD_PRIO_MAX; prio++) {
 +		struct dd_per_prio *per_prio = &dd->per_prio[prio];
 +
 +		list_for_each_entry(rq, &per_prio->fifo_list[DD_WRITE], queuelist) {
-+			if (kairo_is_prefill_write(rq)) {
-+				dd->kairo_prefill_demotions++;
++			if (dd_kairo_should_observe_prefill_demotion(dd, rq, now_ns)) {
++				dd->kairo_prefill_demotion_observations++;
 +				break;
 +			}
-+			if (kairo_is_evict(rq)) {
-+				dd->kairo_evict_demotions++;
++			if (dd_kairo_should_observe_evict_demotion(dd, rq, now_ns)) {
++				dd->kairo_evict_demotion_observations++;
 +				break;
 +			}
 +		}
@@ -143,6 +162,10 @@ index 82a979d..2d26bef 100755
 +			return dd_kairo_finalize_request(dd, rq, DD_READ);
 +		}
 +
++		/*
++		 * No explicit deadline means the foundation path treats this as
++		 * budget-controlled prefetch only.
++		 */
 +		if (dd->kairo_prefetch_budget_used < kairo_prefetch_budget) {
 +			dd->kairo_prefetch_budget_used++;
 +			dd->kairo_prefetch_dispatches++;
@@ -174,13 +197,13 @@ index 82a979d..2d26bef 100755
  	rq = dd_kairo_dispatch_decode_request(dd, now);
 -	if (rq)
 +	if (rq) {
-+		dd_kairo_note_demotions(dd);
++		dd_kairo_note_demotion_observations(dd, now_ns);
 +		goto unlock;
 +	}
 +
 +	rq = dd_kairo_dispatch_prefetch_request(dd, now, now_ns);
 +	if (rq) {
-+		dd_kairo_note_demotions(dd);
++		dd_kairo_note_demotion_observations(dd, now_ns);
  		goto unlock;
 +	}
  
@@ -189,9 +212,12 @@ index 82a979d..2d26bef 100755
 @@ -672,7 +797,7 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
  	 * Next, dispatch requests in priority order. Ignore lower priority
  	 * requests if any higher priority requests are pending.
++	 * Kairo decode and Kairo prefetch already had their opportunity above,
++	 * so keep the normal RT/BE/IDLE mq-deadline order for all remaining
++	 * traffic, including non-Kairo RT requests.
  	 */
 -	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
-+	for (prio = DD_BE_PRIO; prio <= DD_PRIO_MAX; prio++) {
++	for (prio = 0; prio <= DD_PRIO_MAX; prio++) {
  		rq = __dd_dispatch_request(dd, &dd->per_prio[prio], now);
  		if (rq || dd_queued(dd, prio))
  			break;

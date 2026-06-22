@@ -33,6 +33,11 @@ index 02a916b..82a979d 100755
 +	const u8 ioprio_class = dd_rq_ioclass(rq);
 +	const enum dd_prio prio = ioprio_class_to_prio[ioprio_class];
 +
++	/*
++	 * Mirror the tail of __dd_dispatch_request() so the Kairo-biased path
++	 * preserves mq-deadline's normal latest-position, accounting, zone
++	 * locking, and RQF_STARTED invariants.
++	 */
 +	dd->per_prio[prio].latest_pos[data_dir] = blk_rq_pos(rq);
 +	dd->per_prio[prio].stats.dispatched++;
 +	blk_req_zone_write_lock(rq);
@@ -48,7 +53,7 @@ index 02a916b..82a979d 100755
 +
 +	lockdep_assert_held(&dd->lock);
 +
-+	if (!kairo_enable || kairo_decode_budget <= 0)
++	if (!kairo_enable || kairo_decode_budget == 0)
 +		return NULL;
 +
 +	if (dd->kairo_decode_budget_used >= kairo_decode_budget)
@@ -67,6 +72,9 @@ index 02a916b..82a979d 100755
 +		 * normal mq-deadline remove path preserves list/rbtree
 +		 * invariants. Final dispatch bookkeeping mirrors the tail of
 +		 * __dd_dispatch_request().
++		 *
++		 * This helper does not delete from dispatch lists directly and
++		 * does not touch rbtrees except through deadline_move_request().
 +		 */
 +		dd->last_dir = DD_READ;
 +		dd->batching = 1;

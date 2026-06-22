@@ -27,9 +27,9 @@ counter_names=(
   kairo_prefetch_deadline_hits
   kairo_prefetch_budget_skips
   kairo_prefill_dispatches
-  kairo_prefill_demotions
+  kairo_prefill_demotion_observations
   kairo_evict_dispatches
-  kairo_evict_demotions
+  kairo_evict_demotion_observations
   kairo_normal_dispatches
   kairo_starvation_escapes
 

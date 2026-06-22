@@ -1,15 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <linux-source-tree>" >&2
+usage() {
+  cat <<'EOF' >&2
+usage: apply_foundation_stack.sh [--check-only] [--force] <linux-source-tree>
+
+  --check-only  verify that the foundation patches apply cleanly
+  --force       allow apply on a Linux git tree with uncommitted changes
+EOF
+}
+
+CHECK_ONLY=0
+FORCE=0
+LINUX_TREE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check-only)
+      CHECK_ONLY=1
+      shift
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      if [[ -n "$LINUX_TREE" ]]; then
+        usage
+        exit 1
+      fi
+      LINUX_TREE="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$LINUX_TREE" ]]; then
+  usage
   exit 1
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
 PATCH_DIR="$REPO_ROOT/kernel/patches/foundation"
-LINUX_TREE="$1"
 
 foundation_patches=(
   "$PATCH_DIR/0001-kairo-request-classification.patch"
@@ -25,24 +62,36 @@ required_files=(
   "$LINUX_TREE/include/linux/blk_types.h"
 )
 
-if [[ ! -d "$LINUX_TREE" ]]; then
-  echo "[kairo] Linux source tree not found: $LINUX_TREE" >&2
+fail() {
+  echo "[kairo] $*" >&2
   exit 1
+}
+
+if [[ ! -d "$LINUX_TREE" ]]; then
+  fail "Linux source tree not found: $LINUX_TREE"
 fi
 
 for file in "${required_files[@]}"; do
-  if [[ ! -f "$file" ]]; then
-    echo "[kairo] required Linux file missing: $file" >&2
-    exit 1
-  fi
+  [[ -f "$file" ]] || fail "required Linux file missing: $file"
 done
 
 for patch in "${foundation_patches[@]}"; do
-  if [[ ! -f "$patch" ]]; then
-    echo "[kairo] missing foundation patch: $patch" >&2
-    exit 1
-  fi
+  [[ -f "$patch" ]] || fail "missing foundation patch: $patch"
 done
+
+if ! git -C "$LINUX_TREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  fail "apply requires a Linux git checkout: $LINUX_TREE"
+fi
+
+linux_head="$(git -C "$LINUX_TREE" rev-parse --short HEAD 2>/dev/null || true)"
+if [[ -n "$linux_head" ]]; then
+  echo "[kairo] Linux tree commit: $linux_head"
+fi
+
+dirty_status="$(git -C "$LINUX_TREE" status --short --untracked-files=no 2>/dev/null || true)"
+if [[ -n "$dirty_status" && $FORCE -ne 1 ]]; then
+  fail "Linux tree has uncommitted changes; re-run with --force after reviewing them"
+fi
 
 scratch_dir="$(mktemp -d)"
 cleanup() {
@@ -60,20 +109,23 @@ echo "[kairo] checking foundation stack against: $LINUX_TREE"
 for patch in "${foundation_patches[@]}"; do
   echo "[kairo] git apply --check $(basename "$patch")"
   if ! git -C "$scratch_dir" apply --check --recount "$patch"; then
-    echo "[kairo] apply check failed for $(basename "$patch")" >&2
-    exit 1
+    fail "apply check failed for $(basename "$patch"); inspect the Linux tree version and patch context"
   fi
 
   git -C "$scratch_dir" apply --recount "$patch"
 done
 
+if [[ $CHECK_ONLY -eq 1 ]]; then
+  echo "[kairo] foundation stack apply check passed"
+  exit 0
+fi
+
 echo "[kairo] all checks passed; applying foundation stack"
 for patch in "${foundation_patches[@]}"; do
   echo "[kairo] applying $(basename "$patch")"
-  (
-    cd /tmp
-    git apply --unsafe-paths --recount --directory="$LINUX_TREE" "$patch"
-  )
+  if ! git -C "$LINUX_TREE" apply --recount "$patch"; then
+    fail "failed to apply $(basename "$patch"); the Linux tree may no longer match the checked context"
+  fi
 done
 
 echo "[kairo] foundation stack applied successfully"

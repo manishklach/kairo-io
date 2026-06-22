@@ -7,6 +7,11 @@ PATCH_DIR="$REPO_ROOT/kernel/patches"
 FOUNDATION_DIR="$PATCH_DIR/foundation"
 LINUX_TREE="${1:-}"
 
+fail() {
+  echo "[kairo] $*" >&2
+  exit 1
+}
+
 required_broad_patches=(
   "0001-rfc-kairo-mq-deadline-decode-priority.patch"
   "0002-rfc-kairo-request-classification.patch"
@@ -26,44 +31,48 @@ required_foundation_patches=(
   "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch"
 )
 
-required_foundation_docs=(
+required_support_files=(
   "$FOUNDATION_DIR/README.md"
   "$REPO_ROOT/docs/kernel_foundation_stack.md"
+  "$REPO_ROOT/docs/kernel_foundation_invariants.md"
   "$REPO_ROOT/kernel/integration/linux-6.8/apply_foundation_stack.sh"
   "$REPO_ROOT/kernel/integration/linux-6.8/validate_foundation_stack.sh"
   "$REPO_ROOT/kernel/integration/linux-6.8/build_foundation_objects.sh"
+  "$REPO_ROOT/kernel/integration/linux-6.8/smoke_foundation_stack.sh"
 )
 
 for patch in "${required_broad_patches[@]}"; do
-  if [[ ! -f "$PATCH_DIR/$patch" ]]; then
-    echo "[kairo] missing broad RFC/POC patch: $patch" >&2
-    exit 1
-  fi
+  [[ -f "$PATCH_DIR/$patch" ]] || fail "missing broad RFC/POC patch: $patch"
 done
 
-for doc_path in "${required_foundation_docs[@]}"; do
-  if [[ ! -f "$doc_path" ]]; then
-    echo "[kairo] missing foundation support file: $doc_path" >&2
-    exit 1
-  fi
+for path in "${required_support_files[@]}"; do
+  [[ -f "$path" ]] || fail "missing foundation support file: $path"
 done
 
 for patch in "${required_foundation_patches[@]}"; do
-  if [[ ! -f "$patch" ]]; then
-    echo "[kairo] missing foundation patch: $(basename "$patch")" >&2
-    exit 1
-  fi
+  [[ -f "$patch" ]] || fail "missing foundation patch: $(basename "$patch")"
 
   if ! grep -q '^diff --git ' "$patch"; then
-    echo "[kairo] malformed patch header: $(basename "$patch")" >&2
-    exit 1
+    fail "malformed patch header: $(basename "$patch")"
   fi
 
   if grep -q '^\+@@' "$patch"; then
-    echo "[kairo] malformed hunk marker found in $(basename "$patch")" >&2
-    exit 1
+    fail "malformed hunk marker found in $(basename "$patch")"
   fi
 done
+
+if grep -RInE '(/C:/|C:\\\\)' \
+  "$REPO_ROOT/docs" \
+  "$REPO_ROOT/kernel/integration/linux-6.8" \
+  "$REPO_ROOT/README.md" >/dev/null; then
+  fail "local absolute paths found in repository documentation"
+fi
+
+if grep -A2 -F 'Next, dispatch requests in priority order.' \
+  "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch" | \
+  grep -q 'for (prio = DD_BE_PRIO; prio <= DD_PRIO_MAX; prio++)'; then
+  fail "foundation patch 0003 skips ordinary RT priority in the normal mq-deadline loop"
+fi
 
 foundation_symbols=(
   "$FOUNDATION_DIR/0001-kairo-request-classification.patch:enum kairo_io_class"
@@ -78,12 +87,12 @@ foundation_symbols=(
   "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefetch_budget"
   "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefetch_deadline_us"
   "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefetch_dispatches"
+  "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefetch_deadline_hits"
+  "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefetch_budget_skips"
   "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefill_dispatches"
+  "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_prefill_demotion_observations"
   "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_evict_dispatches"
-  "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch:kairo_prefetch_deadline_hits"
-  "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch:kairo_prefetch_budget_skips"
-  "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch:kairo_prefill_demotions"
-  "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch:kairo_evict_demotions"
+  "$FOUNDATION_DIR/0003-kairo-prefetch-prefill-evict-policy.patch:kairo_evict_demotion_observations"
   "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch:kairo_normal_dispatches"
   "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch:kairo_starvation_escapes"
 )
@@ -91,10 +100,29 @@ foundation_symbols=(
 for entry in "${foundation_symbols[@]}"; do
   patch="${entry%%:*}"
   symbol="${entry#*:}"
-  if ! grep -q "$symbol" "$patch"; then
-    echo "[kairo] missing symbol $symbol in $(basename "$patch")" >&2
-    exit 1
-  fi
+  grep -q "$symbol" "$patch" || fail "missing symbol $symbol in $(basename "$patch")"
+done
+
+required_sysfs_names=(
+  "kairo_enable"
+  "kairo_decode_budget"
+  "kairo_prefetch_budget"
+  "kairo_prefetch_deadline_us"
+  "kairo_decode_dispatches"
+  "kairo_prefetch_dispatches"
+  "kairo_prefetch_deadline_hits"
+  "kairo_prefetch_budget_skips"
+  "kairo_prefill_dispatches"
+  "kairo_prefill_demotion_observations"
+  "kairo_evict_dispatches"
+  "kairo_evict_demotion_observations"
+  "kairo_normal_dispatches"
+  "kairo_starvation_escapes"
+)
+
+for name in "${required_sysfs_names[@]}"; do
+  grep -q "$name" "$FOUNDATION_DIR/0004-kairo-mq-deadline-sysfs-counters.patch" || \
+    fail "missing sysfs name $name in foundation patch 0004"
 done
 
 if [[ -z "$LINUX_TREE" ]]; then
@@ -103,10 +131,7 @@ if [[ -z "$LINUX_TREE" ]]; then
   exit 0
 fi
 
-if [[ ! -d "$LINUX_TREE" ]]; then
-  echo "[kairo] Linux source tree not found: $LINUX_TREE" >&2
-  exit 1
-fi
+[[ -d "$LINUX_TREE" ]] || fail "Linux source tree not found: $LINUX_TREE"
 
 required_linux_files=(
   "$LINUX_TREE/block/mq-deadline.c"
@@ -116,10 +141,7 @@ required_linux_files=(
 )
 
 for file in "${required_linux_files[@]}"; do
-  if [[ ! -f "$file" ]]; then
-    echo "[kairo] expected Linux file missing: $file" >&2
-    exit 1
-  fi
+  [[ -f "$file" ]] || fail "expected Linux file missing: $file"
 done
 
 scratch_dir="$(mktemp -d)"

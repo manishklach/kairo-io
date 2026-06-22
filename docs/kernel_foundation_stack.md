@@ -78,8 +78,9 @@ The scripts expect these kernel files to exist:
 
 See:
 
-- [kernel/integration/linux-6.8/patch_apply_notes.md](/C:/Users/ManishKL/Documents/Playground/kv-io/kernel/integration/linux-6.8/patch_apply_notes.md)
-- [docs/tested_kernel_matrix.md](/C:/Users/ManishKL/Documents/Playground/kv-io/docs/tested_kernel_matrix.md)
+- [kernel/integration/linux-6.8/patch_apply_notes.md](../kernel/integration/linux-6.8/patch_apply_notes.md)
+- [docs/tested_kernel_matrix.md](tested_kernel_matrix.md)
+- [docs/kernel_foundation_invariants.md](kernel_foundation_invariants.md)
 
 At the current repo state:
 

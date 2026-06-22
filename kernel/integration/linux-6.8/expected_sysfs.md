@@ -14,14 +14,16 @@ patch applied, the scheduler should expose the following files when
 /sys/block/<dev>/queue/iosched/kairo_prefetch_deadline_hits
 /sys/block/<dev>/queue/iosched/kairo_prefetch_budget_skips
 /sys/block/<dev>/queue/iosched/kairo_prefill_dispatches
-/sys/block/<dev>/queue/iosched/kairo_prefill_demotions
+/sys/block/<dev>/queue/iosched/kairo_prefill_demotion_observations
 /sys/block/<dev>/queue/iosched/kairo_evict_dispatches
-/sys/block/<dev>/queue/iosched/kairo_evict_demotions
+/sys/block/<dev>/queue/iosched/kairo_evict_demotion_observations
 /sys/block/<dev>/queue/iosched/kairo_normal_dispatches
 /sys/block/<dev>/queue/iosched/kairo_starvation_escapes
 ```
 
 These files are intended for local validation and benchmark-driven POC work.
+The demotion observation counters are queue snapshots taken when decode or
+urgent prefetch wins over background work; they are not unique request counts.
 
 Suggested checks:
 
@@ -37,9 +39,9 @@ for name in \
   kairo_prefetch_deadline_hits \
   kairo_prefetch_budget_skips \
   kairo_prefill_dispatches \
-  kairo_prefill_demotions \
+  kairo_prefill_demotion_observations \
   kairo_evict_dispatches \
-  kairo_evict_demotions \
+  kairo_evict_demotion_observations \
   kairo_normal_dispatches \
   kairo_starvation_escapes; do
   cat "/sys/block/<dev>/queue/iosched/$name"

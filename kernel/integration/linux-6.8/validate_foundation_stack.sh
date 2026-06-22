@@ -1,19 +1,65 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <linux-source-tree>" >&2
+usage() {
+  cat <<'EOF' >&2
+usage: validate_foundation_stack.sh [--check-only] <linux-source-tree>
+
+  --check-only  verify the Linux tree layout and report the git commit if available
+EOF
+}
+
+CHECK_ONLY=0
+LINUX_TREE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check-only)
+      CHECK_ONLY=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      if [[ -n "$LINUX_TREE" ]]; then
+        usage
+        exit 1
+      fi
+      LINUX_TREE="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$LINUX_TREE" ]]; then
+  usage
   exit 1
 fi
 
-LINUX_TREE="$1"
+fail() {
+  echo "[kairo] $*" >&2
+  exit 1
+}
+
 MQ_DEADLINE_FILE="$LINUX_TREE/block/mq-deadline.c"
 BLK_TYPES_FILE="$LINUX_TREE/include/linux/blk_types.h"
 BLK_MQ_FILE="$LINUX_TREE/include/linux/blk-mq.h"
 
 if [[ ! -f "$MQ_DEADLINE_FILE" || ! -f "$BLK_TYPES_FILE" || ! -f "$BLK_MQ_FILE" ]]; then
-  echo "[kairo] expected Linux 6.8 foundation files are missing in $LINUX_TREE" >&2
-  exit 1
+  fail "expected Linux 6.8 foundation files are missing in $LINUX_TREE"
+fi
+
+if git -C "$LINUX_TREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "[kairo] Linux tree commit: $(git -C "$LINUX_TREE" rev-parse --short HEAD)"
+else
+  echo "[kairo] Linux tree is not a git checkout; commit hash unavailable"
+fi
+
+if [[ $CHECK_ONLY -eq 1 ]]; then
+  echo "[kairo] Linux tree layout checks passed"
+  exit 0
 fi
 
 blk_types_symbols=(
@@ -36,8 +82,13 @@ mq_deadline_symbols=(
   "kairo_prefetch_deadline_us"
   "kairo_decode_dispatches"
   "kairo_prefetch_dispatches"
+  "kairo_prefetch_deadline_hits"
+  "kairo_prefetch_budget_skips"
   "kairo_prefill_dispatches"
+  "kairo_prefill_demotion_observations"
   "kairo_evict_dispatches"
+  "kairo_evict_demotion_observations"
+  "kairo_normal_dispatches"
   "kairo_starvation_escapes"
 )
 
@@ -71,8 +122,7 @@ for symbol in "${mq_deadline_symbols[@]}"; do
 done
 
 if [[ $missing -ne 0 ]]; then
-  echo "[kairo] foundation stack validation failed" >&2
-  exit 1
+  fail "foundation stack validation failed"
 fi
 
 echo "[kairo] foundation stack validation passed"
