@@ -15,7 +15,10 @@ Subsystem touched:
 New Kairo concept:
 - generic backend placement mapping layer that converts Stage 6
   placement/lifetime metadata into a neutral backend class
-- feature-detected NVMe hooks (Streams, FDP, ZNS) with safe no-op fallback
+- `struct kairo_backend_caps` abstraction replacing per-feature
+  detection helpers
+- feature-detected NVMe hooks (Streams, FDP, ZNS) with safe no-op
+  fallback via unified caps query
 - separate mapping layer from physical command programming
 
 Relation to AI KV-cache traffic:
@@ -24,7 +27,18 @@ Relation to AI KV-cache traffic:
 - model-scoped data maps to KAIRO_BACKEND_MODEL_LOCAL
 - recomputable data maps to KAIRO_BACKEND_RECOMPUTABLE
 - persistent data maps to KAIRO_BACKEND_PERSISTENT
-- cache_pool_id and placement_group select placement pool/group within a class
+- cache_pool_id and placement_group select placement pool/group
+  within a class
+
+Section layout:
+  A  blk_types.h        enum kairo_backend_class, struct kairo_backend_hint, flags
+  B  blk_types.h        struct kairo_backend_caps (capability abstraction)
+  C  blk-mq.h           generic backend helpers (class_from_request, hint_from_request, ...)
+  D  blk-mq.h           kairo_backend_hint_apply_caps (caps -> hint)
+  E  include/linux/nvme.h  nvme_kairo_mapping (legacy placeholder)
+  F  drivers/nvme/host/nvme.h  nvme_kairo_get_backend_caps (detection query)
+  G  drivers/nvme/host/core.c  nvme_kairo_prepare/apply_backend_hint, call site
+  H  drivers/nvme/host/zns.c   nvme_kairo_zone_reset_candidate
 
 RFC/POC staging:
 - backend class mapping is metadata-only for now
@@ -32,16 +46,26 @@ RFC/POC staging:
 - no physical placement commands are issued by this patch
 
 Still to validate:
-- whether the generic backend class abstraction survives real NVMe device
-  attachment with Streams/FDP/ZNS capabilities
-- whether software-only backend classification provides measurable benefit
-  before hardware mapping is wired
+- whether the generic backend class abstraction survives real NVMe
+  device attachment with Streams/FDP/ZNS capabilities
+- whether software-only backend classification provides measurable
+  benefit before hardware mapping is wired
+- whether the kairo_backend_caps abstraction is sufficient for all
+  target NVMe backends (Streams, FDP, ZNS, endurance groups)
 
 diff --git a/include/linux/blk_types.h b/include/linux/blk_types.h
 index f190ccd..d20ef19 100644
 --- a/include/linux/blk_types.h
 +++ b/include/linux/blk_types.h
-@@
+@@ -XXX,6 +XXX,XXX @@
++/*
++ * SECTION A: Backend class enum and placement hint structure.
++ *
++ * COMPILE-TARGET: These types add no external kernel dependencies and
++ * compile cleanly on any kernel version with the Kairo foundation
++ * stack applied.
++ */
++
 +enum kairo_backend_class {
 +	KAIRO_BACKEND_NONE = 0,
 +	KAIRO_BACKEND_SHORT_LIVED,
@@ -78,11 +102,33 @@ index f190ccd..d20ef19 100644
 +#define KAIRO_BACKEND_F_NOOP_FALLBACK	BIT(3)
 +#define KAIRO_BACKEND_F_RECOMPUTABLE	BIT(4)
 +
++/*
++ * SECTION B: Backend capability abstraction.
++ *
++ * COMPILE-TARGET: Simple POD struct with no external dependencies.
++ * Replaces per-feature _supported() helpers with a single query
++ * function that returns a caps bitmap.
++ */
++
++/*
++ * struct kairo_backend_caps - summary of device backend capabilities.
++ *
++ * Populated by nvme_kairo_get_backend_caps() (or equivalent for
++ * non-NVMe devices). Each boolean indicates whether the corresponding
++ * backend placement feature is available on the target device.
++ */
++struct kairo_backend_caps {
++	bool streams : 1;
++	bool fdp     : 1;
++	bool zns     : 1;
++};
++
   struct kairo_request_hints {
   	enum kairo_io_class io_class;
   	u64 kairo_deadline_ns;
   	u32 kairo_prefetch_distance;
   	struct kairo_placement_hint placement;
++	struct kairo_backend_hint backend;
   	u32 flags;
   };
 
@@ -90,12 +136,14 @@ diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
 index 7b11be3..e4f2a1c 100644
 --- a/include/linux/blk-mq.h
 +++ b/include/linux/blk-mq.h
-@@
+@@ -XXX,6 +XXX,XXX @@
 +/*
-+ * Stage 7: generic backend mapping helpers.
++ * SECTION C: Generic backend mapping helpers.
 + *
-+ * These convert per-request placement/lifetime metadata into a neutral
-+ * backend class and populate the backend hint structure.
++ * COMPILE-TARGET: These convert per-request placement/lifetime
++ * metadata into a neutral backend class and populate the backend
++ * hint structure. They reference only Kairo-introduced fields and
++ * compile cleanly with the full Kairo stack applied.
 + */
 +
 +static inline enum kairo_backend_class
@@ -146,78 +194,27 @@ index 7b11be3..e4f2a1c 100644
 +	return hint->flags & KAIRO_BACKEND_F_RECOMPUTABLE;
 +}
 +
-diff --git a/include/linux/nvme.h b/include/linux/nvme.h
-index 44ba29f..63d2f01 100644
---- a/include/linux/nvme.h
-+++ b/include/linux/nvme.h
-@@
 +/*
-+ * RFC/POC: NVMe Kairo mapping structure.
++ * SECTION D: Apply backend capabilities to a hint.
 + *
-+ * This is a conceptual placeholder for NVMe-specific placement fields.
-+ * No actual NVMe commands use this data yet; it exists to show where
-+ * Streams/FDP/ZNS fields would be populated when hardware support is
-+ * detected and wired.
++ * COMPILE-TARGET: This helper takes a kairo_backend_caps struct and
++ * populates the corresponding hint fields. The caps struct is a simple
++ * POD; the actual caps query is device-specific (see Section F).
 + */
- struct nvme_kairo_mapping {
- 	u16 streamid;
- 	u16 phandle;
- 	u8 use_zns;
- };
-
-diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
-index 2f3c2ad..8b9e7c1 100644
---- a/drivers/nvme/host/nvme.h
-+++ b/drivers/nvme/host/nvme.h
-@@
-+/*
-+ * RFC/POC: NVMe feature-detection hooks for Kairo backend mapping.
-+ *
-+ * These detect whether the NVMe device supports Streams, FDP, or ZNS
-+ * placement directives. All return false until real detection is wired.
-+ */
-+static inline bool nvme_kairo_streams_supported(struct request_queue *q)
-+{
-+	return false;
-+}
 +
-+static inline bool nvme_kairo_fdp_supported(struct request_queue *q)
++static inline void
++kairo_backend_hint_apply_caps(struct kairo_backend_hint *hint,
++			      const struct kairo_backend_caps *caps)
 +{
-+	return false;
-+}
-+
-+static inline bool nvme_kairo_zns_supported(struct request_queue *q)
-+{
-+	return false;
-+}
-+
-diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
-index 6d201df..5cd9028 100644
---- a/drivers/nvme/host/core.c
-+++ b/drivers/nvme/host/core.c
-@@
-+/*
-+ * Stage 7: generic backend mapping hooks.
-+ *
-+ * These translate Kairo placement metadata into backend placement hints.
-+ * The mapping is feature-detected: if the device supports Streams, FDP,
-+ * or ZNS, the respective hint field is populated; otherwise the
-+ * KAIRO_BACKEND_F_NOOP_FALLBACK flag is set and no backend action is taken.
-+ */
-+static void nvme_kairo_prepare_backend_hint(struct request *rq,
-+					    struct kairo_backend_hint *hint)
-+{
-+	kairo_backend_hint_from_request(rq, hint);
-+
-+	if (nvme_kairo_streams_supported(rq->q)) {
++	if (caps->streams) {
 +		hint->stream_id = hint->placement_group
 +				  ?: hint->cache_pool_id;
 +		hint->flags |= KAIRO_BACKEND_F_STREAMS_CAPABLE;
-+	} else if (nvme_kairo_fdp_supported(rq->q)) {
++	} else if (caps->fdp) {
 +		hint->fdp_placement_id = hint->cache_pool_id
 +					 ?: hint->placement_group;
 +		hint->flags |= KAIRO_BACKEND_F_FDP_CAPABLE;
-+	} else if (nvme_kairo_zns_supported(rq->q)) {
++	} else if (caps->zns) {
 +		hint->zone_hint = (u32)hint->backend_class;
 +		hint->flags |= KAIRO_BACKEND_F_ZNS_CAPABLE;
 +	} else {
@@ -225,11 +222,92 @@ index 6d201df..5cd9028 100644
 +	}
 +}
 +
-+static void nvme_kairo_apply_backend_hint(struct request *rq,
-+					  struct kairo_backend_hint *hint)
+diff --git a/include/linux/nvme.h b/include/linux/nvme.h
+index 44ba29f..63d2f01 100644
+--- a/include/linux/nvme.h
++++ b/include/linux/nvme.h
+@@ -XXX,6 +XXX,XXX @@
++/*
++ * SECTION E: NVMe Kairo mapping placeholder.
++ *
++ * CONCEPTUAL-HOOK: This structure is a placeholder for NVMe-specific
++ * placement fields. No actual NVMe commands use this data yet; it
++ * exists to show where Streams/FDP/ZNS fields would be populated
++ * when hardware support is detected and wired.
++ *
++ * Compile risk: LOW. The struct references only basic integer types.
++ */
+ struct nvme_kairo_mapping {
+ 	u16 streamid;
+ 	u16 phandle;
+
+diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
+index 2f3c2ad..8b9e7c1 100644
+--- a/drivers/nvme/host/nvme.h
++++ b/drivers/nvme/host/nvme.h
+@@ -XXX,6 +XXX,XXX @@
++/*
++ * SECTION F: NVMe backend capability detection.
++ *
++ * CONCEPTUAL-HOOK: Returns a kairo_backend_caps struct indicating
++ * which NVMe placement features the device supports. Currently all
++ * bits are hardcoded to false (no-op).
++ *
++ * When wired to real detection, this function should query:
++ *   streams: ctrl->nr_streams > 0
++ *   fdp:     ctrl->nr_ruhs > 0 (FDP RUH count from identify)
++ *   zns:     ns->head->ids or ns->head->features zoned bit
++ *
++ * Compile risk:
++ *   LOW as no-op (returns zeroed struct).
++ *   MEDIUM when wired — requires correct pointer chasing through
++ *   nvme_ctrl / nvme_ns and may need version-specific identify
++ *   command handling for FDP.
++ */
++static inline struct kairo_backend_caps
++nvme_kairo_get_backend_caps(struct request_queue *q)
 +{
++	struct kairo_backend_caps caps = { false, false, false };
++	return caps;
++}
++
+diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+index 6d201df..5cd9028 100644
+--- a/drivers/nvme/host/core.c
++++ b/drivers/nvme/host/core.c
+@@ -XXX,6 +XXX,XXX @@
++/*
++ * SECTION G: Backend hint preparation and application.
++ *
++ * CONCEPTUAL-HOOK: These functions translate Kairo placement metadata
++ * into backend placement hints, using the kairo_backend_caps
++ * abstraction to select the active backend feature.
++ *
++ * The prepare/apply split allows the hint to be prepared early in
++ * request setup and applied later when the NVMe command is being
++ * assembled.
++ *
++ * Compile risk: MEDIUM. The functions themselves are self-contained,
++ * but the call site insertion in nvme_setup_cmd() is version-sensitive.
++ *
++ * VERSION-SENSITIVE: Call site must be placed after nvme_setup_rw()
++ * succeeds and before command submission.
++ */
++static void nvme_kairo_prepare_backend_hint(struct request *rq)
++{
++	struct kairo_backend_caps caps;
++	struct kairo_backend_hint *hint = &rq->kairo_hints.placement.backend;
++
++	kairo_backend_hint_from_request(rq, hint);
++	caps = nvme_kairo_get_backend_caps(rq->q);
++	kairo_backend_hint_apply_caps(hint, &caps);
++}
++
++static void nvme_kairo_apply_backend_hint(struct request *rq)
++{
++	struct kairo_backend_hint *hint = &rq->kairo_hints.placement.backend;
 +	/*
-+	 * RFC/POC: no-op until NVMe backend feature is wired.
++	 * CONCEPTUAL-HOOK: no-op until NVMe backend feature is wired.
 +	 *
 +	 * When support is detected, this function would:
 +	 * - set NVMe command stream_id (for Streams)
@@ -238,6 +316,7 @@ index 6d201df..5cd9028 100644
 +	 *
 +	 * Currently the hint is populated but not applied to hardware.
 +	 */
++	(void)hint;
 +}
 +
 +/*
@@ -247,16 +326,15 @@ index 6d201df..5cd9028 100644
  static void nvme_kairo_select_mapping(struct request *rq,
  				      struct nvme_kairo_mapping *map)
  {
-@@
+@@ -XXX,6 +XXX,XXX @@
 +	/*
 +	 * RFC/POC: call into the new backend mapping layer.
-+	 * The backend hint is prepared and stored but not applied yet.
++	 * The backend hint is prepared and stored in the request's
++	 * kairo_hints.placement.backend field, then applied (no-op).
 +	 */
 +	if (ctrl->nr_streams || ctrl->nr_ruhs) {
-+		struct kairo_backend_hint bhint;
-+
-+		nvme_kairo_prepare_backend_hint(rq, &bhint);
-+		nvme_kairo_apply_backend_hint(rq, &bhint);
++		nvme_kairo_prepare_backend_hint(rq);
++		nvme_kairo_apply_backend_hint(rq);
 +	}
 +
  	if (ctrl->nr_streams || ctrl->nr_ruhs) {
@@ -265,20 +343,25 @@ index 6d201df..5cd9028 100644
  		nvme_kairo_select_mapping(rq, &map);
  		/*
  		 * RFC/POC only: if unsupported, this remains a no-op and the
- 		 * request proceeds through the normal generic NVMe path.
- 		 */
+		 * request proceeds through the normal generic NVMe path.
+		 */
  	}
 
 diff --git a/drivers/nvme/host/zns.c b/drivers/nvme/host/zns.c
 index 4ca102f..ac77fe9 100644
 --- a/drivers/nvme/host/zns.c
 +++ b/drivers/nvme/host/zns.c
-@@
+@@ -XXX,6 +XXX,XXX @@
 +/*
-+ * RFC/POC: ZNS-aware Kairo zone reset candidate detection.
++ * SECTION H: ZNS-aware Kairo zone reset candidate detection.
 + *
-+ * Returns true if this request is a good candidate for zone reset
-+ * based on Kairo eviction and lifetime metadata.
++ * CONCEPTUAL-HOOK: Returns true if this request is a good candidate
++ * for zone reset based on Kairo eviction and lifetime metadata.
++ *
++ * Compile risk: LOW. The function is a simple predicate on Kairo
++ * metadata fields. It compiles on any kernel version, though it
++ * remains dead code until a call site is wired in a ZNS zone
++ * management path.
 + */
  static bool nvme_kairo_zone_reset_candidate(struct request *rq)
  {

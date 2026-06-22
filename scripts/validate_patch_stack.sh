@@ -170,13 +170,13 @@ done
 required_stage7_symbols=(
   "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:enum kairo_backend_class"
   "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:struct kairo_backend_hint"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:struct kairo_backend_caps"
   "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:kairo_backend_class_from_request"
   "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:kairo_backend_hint_from_request"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:kairo_backend_hint_apply_caps"
   "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_prepare_backend_hint"
   "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_apply_backend_hint"
-  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_streams_supported"
-  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_fdp_supported"
-  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_zns_supported"
+  "$PATCH_DIR/0008-rfc-kairo-nvme-zns-fdp-mapping.patch:nvme_kairo_get_backend_caps"
 )
 
 for entry in "${required_stage7_symbols[@]}"; do
@@ -204,7 +204,38 @@ for name in "${required_stage7_sysfs_names[@]}"; do
     fail "missing Stage 7 sysfs counter $name in broad patch 0009"
 done
 
-# Stage 7.5: verify experiment harness
+# Stage 7.5: verify NVMe hook audit, caps abstraction, and validator
+stage75_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 7.5: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage75_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 7.5: missing file: $1"
+}
+
+AUDIT_DOC="$REPO_ROOT/docs/stage7_5_nvme_hook_audit.md"
+AUDIT_SH="$REPO_ROOT/kernel/integration/linux-6.8/audit_nvme_hooks.sh"
+VALIDATOR_PY="$REPO_ROOT/scripts/validate_stage7_backend_mapping.py"
+
+stage75_file_exists "$AUDIT_DOC"
+stage75_file_exists "$AUDIT_SH"
+stage75_file_exists "$VALIDATOR_PY"
+stage75_has_pattern "$AUDIT_DOC" "kairo_backend_caps"
+stage75_has_pattern "$AUDIT_DOC" "COMPILE-TARGET CANDIDATE"
+stage75_has_pattern "$AUDIT_DOC" "CONCEPTUAL HOOK"
+stage75_has_pattern "$AUDIT_SH" "check_symbol_present"
+stage75_has_pattern "$AUDIT_SH" "check_symbol_absent"
+
+# Run Python validator
+if command -v python3 &>/dev/null; then
+  echo "[kairo] running Stage 7.5 Python validator..."
+  python3 "$VALIDATOR_PY" || fail "Stage 7.5 Python validator failed"
+else
+  echo "[kairo] python3 not found; skipping Stage 7.5 Python validator"
+fi
+
+# Stage 7 harness checks
 stage7_has_pattern() {
   local file="$1" pattern="$2"
   grep -qF -- "$pattern" "$file" || fail "Stage 7: missing pattern '$pattern' in $(basename "$file")"

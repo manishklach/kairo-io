@@ -149,6 +149,31 @@ The foundation stack currently covers Stage 1 and Stage 2 only.
   - detection of NVMe feature bits via identify commands
   - application of backend hints to NVMe commands
 
+## Stage 7.5
+
+- Broad RFC/POC patches involved: `0008` (rewritten sections A-H)
+- Audit doc: `docs/stage7_5_nvme_hook_audit.md`
+- Audit script: `kernel/integration/linux-6.8/audit_nvme_hooks.sh`
+- Validator: `scripts/validate_stage7_backend_mapping.py`
+- What changed:
+  - 0008 reorganized into sections A–H with `struct kairo_backend_caps` abstraction
+  - Per-feature `nvme_kairo_streams_supported()` / `_fdp_` / `_zns_` replaced by unified `nvme_kairo_get_backend_caps()`
+  - Added `kairo_backend_hint_apply_caps()` helper
+  - `backend` hint stored inline in `struct kairo_backend_hint` inside `kairo_hints.placement`
+  - Compile-risk annotations added per hook point (COMPILE-TARGET, CONCEPTUAL-HOOK, VERSION-SENSITIVE)
+  - Benchmark refactored: `kairo_compute_backend_model()` replaces 5 individual helpers
+  - `validate_patch_stack.sh` integrated with Python validator
+- What should be validated:
+  - All sections A–H present in 0008
+  - Compile-risk annotations match audit document classifications
+  - Python validator passes against current 0008, docs, and benchmark
+  - Audit script detects candidate symbols in real Linux 6.8 tree
+  - Benchmark compiles with refactored backend model computation
+- What is still RFC-only:
+  - Real NVMe hardware placement (Streams, FDP, ZNS)
+  - Wiring of caps detection to real identify-command data
+  - Physical backend mapping effectiveness on target devices
+
 ## Stage 8
 
 - Broad RFC/POC patches involved: benchmark, `tools/bpf`, validation scripts

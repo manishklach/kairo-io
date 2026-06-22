@@ -83,6 +83,37 @@ The repo now also carries a Stage 7 generic backend mapping layer:
 Stage 7 does **not** claim physical data placement, stable UAPI, or
 LKML readiness. It is an RFC/POC scaffold for future backend wiring.
 
+## Stage 7.5: NVMe Hook Audit and Mapping Hardening
+
+Stage 7.5 is a hardening pass over the Stage 7 backend mapping scaffold:
+
+- **0008 rewritten into sections A–H**: Each section covers one file or
+  abstraction layer, with explicit compile-risk annotations.
+- **`struct kairo_backend_caps` introduced**: A unified capability
+  abstraction replacing the three per-feature `_supported()` helpers.
+  Single `nvme_kairo_get_backend_caps()` replaces
+  `nvme_kairo_streams_supported()`, `nvme_kairo_fdp_supported()`, and
+  `nvme_kairo_zns_supported()`.
+- **`kairo_backend_hint_apply_caps()` helper**: Populates hint fields
+  from caps in a single call, shared between kernel and (future)
+  user-space emulation.
+- **Compile-risk annotations**: Every hook point is annotated as
+  `COMPILE-TARGET`, `CONCEPTUAL-HOOK`, or `VERSION-SENSITIVE` with
+  rationale in comments.
+- **Benchmark refactor**: `kairo_compute_backend_model()` consolidates
+  the 5 individual backend helpers into a single function returning a
+  `struct kairo_backend_model`.
+- **Hook-point audit document**: `docs/stage7_5_nvme_hook_audit.md`
+  analyzes each hook point against real Linux 6.8 kernel symbols.
+- **Hook-point audit script**: `kernel/integration/linux-6.8/audit_nvme_hooks.sh`
+  checks a real Linux 6.8 tree for candidate symbols.
+- **Python validator**: `scripts/validate_stage7_backend_mapping.py`
+  checks 0008, docs, and benchmark for required patterns. Integrated
+  into `scripts/validate_patch_stack.sh`.
+
+Stage 7.5 does not add physical placement or NVMe command programming.
+It hardens the existing scaffold and documents the hook-point landscape.
+
 ## Validation Focus
 
 Immediate validation remains centered on:

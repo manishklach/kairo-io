@@ -32,6 +32,19 @@
 | Summary parser | implemented | `parse_stage7_backend_summary.py` with `--csv` and `--pretty` |
 | Counter coverage | updated | `collect_kairo_counters.sh` includes Stage 7 counters |
 
+## Stage 7.5 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| NVMe hook-point audit document | implemented | `docs/stage7_5_nvme_hook_audit.md` — classifies each hook as compile-target or conceptual, with compile risk analysis |
+| 0008 section A–H rewrite | implemented | Reorganized with `kairo_backend_caps` abstraction, compile-risk annotations per section |
+| Backend capability abstraction | implemented | `struct kairo_backend_caps` replaces per-feature `_supported()` helpers |
+| Compile-risk annotation convention | implemented | `COMPILE-TARGET` / `CONCEPTUAL-HOOK` / `VERSION-SENSITIVE` annotations across all hook points |
+| Benchmark backend model refactor | implemented | `kairo_compute_backend_model()` consolidates 5 individual helpers |
+| Hook-point audit script | implemented | `kernel/integration/linux-6.8/audit_nvme_hooks.sh` — checks real kernel tree for candidate symbols |
+| Python validator | implemented | `scripts/validate_stage7_backend_mapping.py` — checks 0008, docs, benchmark for required patterns |
+| Validator integration | implemented | `validate_patch_stack.sh` calls Python validator and checks Stage 7.5 files |
+
 ## Current Read
 
 The repo now has the shape of the full Kairo architecture, but the maturity is

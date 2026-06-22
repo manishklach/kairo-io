@@ -193,6 +193,22 @@ python3 scripts/parse_stage7_backend_summary.py results/stage7/*/summary.log --c
 python3 scripts/parse_stage7_backend_summary.py results/stage7/*/summary.log --pretty
 ```
 
+## Stage 7.5: Hook Audit and Mapping Hardening
+
+Stage 7.5 ([audit document](stage7_5_nvme_hook_audit.md)) performed:
+
+- Hook-point analysis: each 0008 hook classified as compile-target
+  or conceptual with explicit compile-risk annotations
+- `struct kairo_backend_caps` abstraction replacing per-feature
+  `_supported()` helpers
+- `kairo_backend_hint_apply_caps()` helper for unified caps-to-hint
+  mapping
+- 0008 reorganized into sections A–H with annotation comments at
+  each hook point
+- Benchmark refactor: `kairo_compute_backend_model()` consolidation
+- Python validator (`scripts/validate_stage7_backend_mapping.py`)
+  integrated into `scripts/validate_patch_stack.sh`
+
 ## What Remains Unvalidated
 
 - Whether the generic `kairo_backend_class` abstraction maps usefully to

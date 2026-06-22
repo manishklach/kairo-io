@@ -5,6 +5,24 @@
 | Linux 6.8.12 | passed | passed | passed | passed | failed | pending | pending | pending | `scripts/validate_patch_stack.sh`, `apply_foundation_stack.sh`, and `validate_foundation_stack.sh` passed on the local `linux-6.8.12-min` tree. The direct patched `block/mq-deadline.o` build passed. The combined `block/blk-mq.o block/mq-deadline.o` path failed on local `blk-mq.o` `struct blk_plug` member errors that also reproduced outside the Kairo foundation path. Boot and runtime validation remain unrun. |
 | Linux 6.8.x (additional trees) | pending | not run | not run | not run | not run | pending | pending | pending | add rows as local validation expands |
 
+## Stage 7.5 Status
+
+Stage 7.5 (NVMe hook audit and mapping hardening) is a metadata-level
+verification pass:
+
+- `docs/stage7_5_nvme_hook_audit.md` — analyzes each 0008 hook point
+  against Linux 6.8 real kernel symbols
+- `kernel/integration/linux-6.8/audit_nvme_hooks.sh` — programmatic
+  audit checking candidate symbol presence
+- `scripts/validate_stage7_backend_mapping.py` — validates 0008 sections,
+  docs, and benchmark against required patterns
+- Integrated into `scripts/validate_patch_stack.sh`
+- Benchmark refactored: `kairo_compute_backend_model()` consolidation
+- 0008 rewritten with `kairo_backend_caps` abstraction and compile-risk
+  annotations
+
+Stage 7.5 does not change foundation status or kernel compilation targets.
+
 ## Patch 0008/0009 Stage 7 Mapping Status
 
 Stage 7 (`0008`, `0009`) adds a generic backend mapping scaffold with
