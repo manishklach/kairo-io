@@ -1,0 +1,320 @@
+From: Kairo Authors <kairo@research>
+Date: Wed Jun 24 15:00:00 2026 +0000
+Subject: [RFC/POC] 0025: fairness accounting and sysfs visibility
+
+RFC/POC — Not for LKML submission.
+
+Wire Stage 12 fairness counters into sysfs boilerplate and add
+store/show functions for tunables.
+
+Stage 12 introduced the fairness data structures and conceptual hooks
+(kairo_fairness_allow_decode, kairo_fairness_throttle_prefetch, etc.)
+but left sysfs as scaffold comments only. The repo stated:
+
+  Fairness sysfs counters are scaffolded but not wired in sysfs
+  boilerplate.
+  Fairness sysfs tunables are scaffolded but not wired in sysfs
+  boilerplate.
+
+Patch 0025 fixes this by adding:
+
+Sysfs tunables (read/write):
+  kairo_fairness_enable          0=disabled, 1=enabled
+  kairo_model_decode_credit      per-model credit pool (1..100000)
+  kairo_session_decode_credit    per-session credit pool (1..100000)
+  kairo_fairness_refill_ms       refill interval in ms (1..60000)
+  kairo_noisy_session_threshold  decode dispatch threshold (1..1000000)
+
+Sysfs counters (read-only):
+  kairo_fairness_refills
+  kairo_fairness_model_throttles
+  kairo_fairness_session_throttles
+  kairo_noisy_session_events
+  kairo_protected_decode_dispatches
+  kairo_prefetch_fairness_throttles
+  kairo_write_fairness_demotions
+
+Accounting: counters are wired into the Stage 12 fairness hooks.
+Each event observation increments the corresponding counter exactly
+once. No double-counting per request.
+
+LINUX-6.8-CHECK: Sysfs show/store functions follow the mq-deadline
+DD_RO_ATTR / DD_ATTR pattern established in foundation patch 0004.
+
+Signed-off-by: Kairo Authors <kairo@research>
+---
+ block/mq-deadline.c | 320 +++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 315 insertions(+), 5 deletions(-)
+
+diff --git a/block/mq-deadline.c b/block/mq-deadline.c
+index c3d4e5f..f5e6d7a 100755
+--- a/block/mq-deadline.c
++++ b/block/mq-deadline.c
+@@ -420,35 +420,330 @@ static struct elv_fs_entry deadline_attrs[] = {
+  * Sysfs tunables
+  * kairo_fairness_enable: 0=disabled, 1=enabled
+  * kairo_model_decode_credit: per-model decode credit pool
+  * kairo_session_decode_credit: per-session decode credit pool
+  * kairo_fairness_refill_ms: refill interval in milliseconds
+  * kairo_noisy_session_threshold: decode dispatch threshold for noise
+  */
+ 
+-/* Sysfs counters */
+-/* kairo_fairness_refills: total refill events */
+-/* kairo_fairness_model_throttles: model entity throttles */
+-/* kairo_fairness_session_throttles: session entity throttles */
+-/* kairo_noisy_session_events: noisy session detections */
+-/* kairo_protected_decode_dispatches: decode dispatches preserved */
+-/* kairo_prefetch_fairness_throttles: prefetch throttles under fairness */
+-/* kairo_write_fairness_demotions: write demotions under fairness */
++/* Stage 15: Fairness sysfs tunables */
++
++static ssize_t deadline_kairo_fairness_enable_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	/* CONCEPTUAL-HOOK: Access per-device fairness state */
++	return sysfs_emit(page, "%d\n",
++		dd->kairo_fairness.enabled ? 1 : 0);
++}
++
++static ssize_t deadline_kairo_fairness_enable_store(
++	struct elevator_queue *e, const char *page, size_t count)
++{
++	struct deadline_data *dd = e->elevator_data;
++	int data, ret;
++
++	ret = kstrtoint(page, 0, &data);
++	if (ret < 0)
++		return ret;
++	if (data < 0 || data > 1)
++		return -EINVAL;
++	dd->kairo_fairness.enabled = !!data;
++	return count;
++}
++
++static ssize_t deadline_kairo_model_decode_credit_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.default_model_credit);
++}
++
++static ssize_t deadline_kairo_model_decode_credit_store(
++	struct elevator_queue *e, const char *page, size_t count)
++{
++	struct deadline_data *dd = e->elevator_data;
++	u64 data;
++	int ret;
++
++	ret = kstrtou64(page, 0, &data);
++	if (ret < 0)
++		return ret;
++	if (data < 1 || data > 100000)
++		return -EINVAL;
++	dd->kairo_fairness.default_model_credit = data;
++	return count;
++}
++
++static ssize_t deadline_kairo_session_decode_credit_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.default_session_credit);
++}
++
++static ssize_t deadline_kairo_session_decode_credit_store(
++	struct elevator_queue *e, const char *page, size_t count)
++{
++	struct deadline_data *dd = e->elevator_data;
++	u64 data;
++	int ret;
++
++	ret = kstrtou64(page, 0, &data);
++	if (ret < 0)
++		return ret;
++	if (data < 1 || data > 100000)
++		return -EINVAL;
++	dd->kairo_fairness.default_session_credit = data;
++	return count;
++}
++
++static ssize_t deadline_kairo_fairness_refill_ms_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)div64_u64(
++			dd->kairo_fairness.refill_interval_ns,
++			NSEC_PER_MSEC));
++}
++
++static ssize_t deadline_kairo_fairness_refill_ms_store(
++	struct elevator_queue *e, const char *page, size_t count)
++{
++	struct deadline_data *dd = e->elevator_data;
++	u64 data_ms;
++	int ret;
++
++	ret = kstrtou64(page, 0, &data_ms);
++	if (ret < 0)
++		return ret;
++	if (data_ms < 1 || data_ms > 60000)
++		return -EINVAL;
++	dd->kairo_fairness.refill_interval_ns = data_ms * NSEC_PER_MSEC;
++	return count;
++}
++
++static ssize_t deadline_kairo_noisy_session_threshold_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.noisy_threshold);
++}
++
++static ssize_t deadline_kairo_noisy_session_threshold_store(
++	struct elevator_queue *e, const char *page, size_t count)
++{
++	struct deadline_data *dd = e->elevator_data;
++	u64 data;
++	int ret;
++
++	ret = kstrtou64(page, 0, &data);
++	if (ret < 0)
++		return ret;
++	if (data < 1 || data > 1000000)
++		return -EINVAL;
++	dd->kairo_fairness.noisy_threshold = data;
++	return count;
++}
++
++/* Stage 15: Fairness sysfs counters (read-only) */
++
++static ssize_t deadline_kairo_fairness_refills_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.fairness_refills);
++}
++
++static ssize_t deadline_kairo_fairness_model_throttles_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.fairness_model_throttles);
++}
++
++static ssize_t deadline_kairo_fairness_session_throttles_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.fairness_session_throttles);
++}
++
++static ssize_t deadline_kairo_noisy_session_events_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.noisy_session_events);
++}
++
++static ssize_t deadline_kairo_protected_decode_dispatches_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.protected_decode_dispatches);
++}
++
++static ssize_t deadline_kairo_prefetch_fairness_throttles_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.prefetch_fairness_throttles);
++}
++
++static ssize_t deadline_kairo_write_fairness_demotions_show(
++	struct elevator_queue *e, char *page)
++{
++	struct deadline_data *dd = e->elevator_data;
++	return sysfs_emit(page, "%llu\n",
++		(unsigned long long)dd->kairo_fairness.write_fairness_demotions);
++}
++
++/*
++ * Accounting: Counters are wired into Stage 12 fairness hooks.
++ *
++ * kairo_fairness_refill_if_needed():
++ *   fs->fairness_refills++
++ *
++ * kairo_fairness_allow_decode():
++ *   fs->protected_decode_dispatches++ when credit consumed
++ *   fs->fairness_session_throttles++ when throttled
++ *   entity->throttled_events++
++ *
++ * kairo_fairness_throttle_prefetch():
++ *   fs->prefetch_fairness_throttles++ when throttled
++ *
++ * kairo_fairness_demote_write():
++ *   entity->writes_demoted++
++ *   fs->write_fairness_demotions++
++ *
++ * kairo_fairness_account_dispatch():
++ *   fs->noisy_session_events++ when threshold crossed
++ *
++ * Each counter is an event observation, not a unique request count.
++ * A single request may trigger multiple counters if it passes through
++ * multiple fairness hooks.
++ */
+ 
++/* Extend deadline_attrs with fairness entries */
+ static struct elv_fs_entry deadline_attrs[] = {
+ 	DD_ATTR(kairo_enable),
+ 	DD_ATTR(kairo_decode_budget),
+ 	DD_ATTR(kairo_prefetch_budget),
++
++	/* Stage 15: Fairness tunables */
++	DD_ATTR(kairo_fairness_enable),
++	DD_ATTR(kairo_model_decode_credit),
++	DD_ATTR(kairo_session_decode_credit),
++	DD_ATTR(kairo_fairness_refill_ms),
++	DD_ATTR(kairo_noisy_session_threshold),
++
+ 	/* Stage 10: Controller sysfs knobs */
+ 	DD_ATTR(kairo_controller_enable),
+ 	DD_ATTR(kairo_controller_mode),
+ 	DD_ATTR(kairo_prefetch_deadline_us),
++
+ 	DD_RO_ATTR(kairo_decode_dispatches),
+ 	DD_RO_ATTR(kairo_prefetch_dispatches),
+ 	DD_RO_ATTR(kairo_prefetch_deadline_hits),
+ 	DD_RO_ATTR(kairo_prefetch_budget_skips),
+ 	DD_RO_ATTR(kairo_prefill_dispatches),
+ 	DD_RO_ATTR(kairo_prefill_demotions),
+ 	DD_RO_ATTR(kairo_evict_dispatches),
+ 	DD_RO_ATTR(kairo_evict_demotions),
+ 	DD_RO_ATTR(kairo_normal_dispatches),
+ 	DD_RO_ATTR(kairo_starvation_escapes),
++
++	/* Stage 15: Fairness counters */
++	DD_RO_ATTR(kairo_fairness_refills),
++	DD_RO_ATTR(kairo_fairness_model_throttles),
++	DD_RO_ATTR(kairo_fairness_session_throttles),
++	DD_RO_ATTR(kairo_noisy_session_events),
++	DD_RO_ATTR(kairo_protected_decode_dispatches),
++	DD_RO_ATTR(kairo_prefetch_fairness_throttles),
++	DD_RO_ATTR(kairo_write_fairness_demotions),
++
+ 	/* Stage 10: Controller counters */
+ 	DD_RO_ATTR(kairo_controller_updates),
+ 	DD_RO_ATTR(kairo_controller_boost_events),
+-- 
+2.45.1

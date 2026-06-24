@@ -35,6 +35,7 @@ local apply/build target for Stage 1 and Stage 2 validation.
 | `0022` / foundation `0005` | foundation tracepoints | `include/trace/events/kairo.h`, `block/blk-mq.c`, `block/mq-deadline.c` | Compile-targeted foundation tracepoint subset (4 tracepoints: classify, decode dispatch, prefetch dispatch, write demoted); optional apply via `--with-tracepoints`; LINUX-6.8-CHECK annotations; distinct from Stage 8 broad scaffold |
 | `0023` | decode latency histogram | `block/mq-deadline.c` | Bucketed decode latency histogram with p95/p99 tail estimator; replaces coarse avg/max heuristic in Stage 10 adaptive controller; 10 histogram buckets from 0-10us to >5ms; enum, struct, helpers, sysfs counters; CONCEPTUAL-HOOK; user-space benchmark histogram output; five canonical experiment cases |
 | `0024` | controller feedback wiring | `block/mq-deadline.c`, `include/linux/blk-mq.h` | Wires decode latency observations into the Stage 10 adaptive controller; `kairo_mark_classify_time()`, `kairo_mark_dispatch_time()`, `kairo_decode_queue_latency_us()` helpers; timestamp metadata in `kairo_request_hints`; dispatch call site feeds histogram; missing timestamp handling; 5 feedback counters; `kairo_controller_sample` tracepoint (documented only); 5 canonical experiment cases |
+| `0025` | fairness accounting sysfs | `block/mq-deadline.c` | Wires Stage 12 fairness counters into sysfs boilerplate; 5 tunables with bounds-checked show/store; 7 counters with read-only show; counter increment wiring in fairness hooks; LINUX-6.8-CHECK annotations |
 
 ## Design Themes
 

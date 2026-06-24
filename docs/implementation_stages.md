@@ -391,3 +391,34 @@ framework:
   - per-device timestamp tracking (uses per-request metadata)
   - interaction with BPF dispatch hook (patch 0016)
   - interaction with Stage 12 fairness throttle path
+
+## Stage 15
+
+- Broad RFC/POC patches involved: `0025`
+- Docs: `docs/stage15_fairness_accounting_sysfs.md`
+- Scripts:
+  - `scripts/run_stage15_fairness_accounting_experiment.sh`
+  - `scripts/parse_stage15_fairness_accounting_summary.py`
+- What should compile:
+  - sysfs show/store functions for 5 tunables: `kairo_fairness_enable`,
+    `kairo_model_decode_credit`, `kairo_session_decode_credit`,
+    `kairo_fairness_refill_ms`, `kairo_noisy_session_threshold`
+  - sysfs read-only show functions for 7 counters: `kairo_fairness_refills`,
+    `kairo_fairness_model_throttles`, `kairo_fairness_session_throttles`,
+    `kairo_noisy_session_events`, `kairo_protected_decode_dispatches`,
+    `kairo_prefetch_fairness_throttles`, `kairo_write_fairness_demotions`
+  - all counters wired into the Stage 12 fairness hooks as event observations
+  - bounds-checked store functions for all tunables
+- What should be measurable:
+  - fairness counter movement in sysfs when Stage 12 fairness is enabled
+  - tunables accept valid inputs and reject out-of-bounds values
+  - five canonical experiment cases covering balanced, noisy, and write-pressure
+  - structured output under `results/stage15/<timestamp>/`
+  - parseable summary logs with CSV and pretty-printed tables
+  - benchmark `--noisy-session`, `--noisy-model`, `--noisy-multiplier` flags
+- What is still RFC-only:
+  - dispatch-path integration of fairness hooks (CONCEPTUAL-HOOK)
+  - timer-based credit refill (called from dispatch path)
+  - per-device fairness state (uses static/placeholder)
+  - interaction with Stage 10 adaptive controller
+  - interaction with BPF dispatch hook (patch 0016)

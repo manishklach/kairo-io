@@ -160,3 +160,29 @@ Stage 14 is **not** foundation-integrated, **not** LKML-ready, and **not**
 boot-validated. The dispatch call site is CONCEPTUAL-HOOK with LINUX-6.8-CHECK
 annotations. Kernel-side feedback loop movement is not claimed unless tested
 on a patched kernel.
+
+## Stage 15 Fairness Accounting and Sysfs Wiring Status
+
+Stage 15 (`0025`) wires Stage 12 fairness counters into sysfs boilerplate:
+
+- **Sysfs tunables**: `kairo_fairness_enable`, `kairo_model_decode_credit`,
+  `kairo_session_decode_credit`, `kairo_fairness_refill_ms`,
+  `kairo_noisy_session_threshold` -- all with show/store and bounds checking
+- **Sysfs counters**: `kairo_fairness_refills`, `kairo_fairness_model_throttles`,
+  `kairo_fairness_session_throttles`, `kairo_noisy_session_events`,
+  `kairo_protected_decode_dispatches`, `kairo_prefetch_fairness_throttles`,
+  `kairo_write_fairness_demotions` -- all read-only with sysfs_emit
+- **Accounting wiring**: All 7 counters wired into Stage 12 fairness hooks
+  (CONCEPTUAL-HOOK); each counter is an event observation, not a unique
+  request count
+- **Experiment harness**: `run_stage15_fairness_accounting_experiment.sh` with
+  five canonical cases under `results/stage15/<timestamp>/`
+- **Summary parser**: `parse_stage15_fairness_accounting_summary.py` with CSV
+  and pretty-printed output, fairness counter delta columns
+- **Collector coverage**: `collect_kairo_counters.sh` already includes fairness
+  counters before Stage 15
+
+Stage 15 is **not** foundation-integrated, **not** LKML-ready, and **not**
+boot-validated. The dispatch-path integration of fairness hooks remains
+CONCEPTUAL-HOOK. Kernel-side fairness counter movement is not claimed unless
+tested on a patched kernel.

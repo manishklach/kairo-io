@@ -18,6 +18,7 @@ FIELDS = [
     "stage8_dryrun",
     "stage13_dryrun",
     "stage14_dryrun",
+    "stage15_dryrun",
     "user_bench_baseline",
     "user_bench_mixed",
     "results_dir",
@@ -34,6 +35,7 @@ TABLE_FIELDS = [
     "stage8_dryrun",
     "stage13_dryrun",
     "stage14_dryrun",
+    "stage15_dryrun",
     "user_bench_baseline",
     "user_bench_mixed",
 ]
@@ -94,7 +96,8 @@ def render_markdown(data: dict[str, str]) -> str:
             "- stage8_dryrun.log",
             "- stage13_dryrun.log",
         "- stage14_dryrun.log",
-            "- user_bench_baseline.log",
+        "- stage15_dryrun.log",
+        "- user_bench_baseline.log",
             "- user_bench_mixed.log",
         ]
     )

@@ -543,6 +543,53 @@ grep -qF "kairo_controller_latency_samples" "$REPO_ROOT/scripts/collect_kairo_co
 grep -qF "stage14_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
   fail "Stage 14: run_wsl_validation_snapshot.sh missing stage14_dryrun"
 
+# Stage 15: verify fairness accounting and sysfs wiring
+stage15_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 15: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage15_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 15: missing file: $1"
+}
+
+P25="$PATCH_DIR/0025-rfc-kairo-fairness-accounting-sysfs.patch"
+DOC15="$REPO_ROOT/docs/stage15_fairness_accounting_sysfs.md"
+R15SE="$REPO_ROOT/scripts/run_stage15_fairness_accounting_experiment.sh"
+P15SP="$REPO_ROOT/scripts/parse_stage15_fairness_accounting_summary.py"
+
+stage15_file_exists "$P25"
+stage15_file_exists "$DOC15"
+stage15_file_exists "$R15SE"
+stage15_file_exists "$P15SP"
+stage15_has_pattern "$P25" "kairo_fairness_enable"
+stage15_has_pattern "$P25" "kairo_model_decode_credit"
+stage15_has_pattern "$P25" "kairo_session_decode_credit"
+stage15_has_pattern "$P25" "kairo_fairness_refill_ms"
+stage15_has_pattern "$P25" "kairo_noisy_session_threshold"
+stage15_has_pattern "$P25" "kairo_fairness_refills"
+stage15_has_pattern "$P25" "kairo_fairness_model_throttles"
+stage15_has_pattern "$P25" "kairo_fairness_session_throttles"
+stage15_has_pattern "$P25" "kairo_noisy_session_events"
+stage15_has_pattern "$P25" "kairo_protected_decode_dispatches"
+stage15_has_pattern "$P25" "kairo_prefetch_fairness_throttles"
+stage15_has_pattern "$P25" "kairo_write_fairness_demotions"
+stage15_has_pattern "$DOC15" "Why Fairness Needs Sysfs Visibility"
+stage15_has_pattern "$R15SE" "results/stage15"
+stage15_has_pattern "$R15SE" "block-device"
+stage15_has_pattern "$R15SE" "--noisy-multiplier"
+stage15_has_pattern "$P15SP" "--csv"
+stage15_has_pattern "$P15SP" "--pretty"
+stage15_has_pattern "$P15SP" "DELTA_FIELDS"
+
+# Verify collect_kairo_counters.sh includes fairness counters
+grep -qF "kairo_fairness_refills" "$REPO_ROOT/scripts/collect_kairo_counters.sh" || \
+  fail "Stage 15: collect_kairo_counters.sh missing kairo_fairness_refills"
+
+# Verify WSL validation includes stage15_dryrun
+grep -qF "stage15_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
+  fail "Stage 15: run_wsl_validation_snapshot.sh missing stage15_dryrun"
+
 # Stage 9: verify WSL validation files
 [[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
 [[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"
