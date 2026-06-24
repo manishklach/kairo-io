@@ -130,7 +130,7 @@ echo "[kairo-qemu]   acceleration: tcg cpu: qemu64 (KVM unavailable without root
 # Generate QEMU launch command
 QEMU_CMD=(
   qemu-system-x86_64
-  -machine type=q35,accel=tcg
+  -machine "type=q35,accel=tcg"
   -cpu qemu64
   -m "$MEM_MB"
   -kernel "$KERNEL_IMAGE"
