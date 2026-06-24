@@ -154,7 +154,8 @@ run_case() {
   fi
 
   # Run benchmark
-  local bench_cmd="$(bench_exe) --duration $DURATION --file $FILE_PATH --device $BLOCK_DEVICE $bench_args"
+  local bench_cmd
+  bench_cmd="$(bench_exe) --duration $DURATION --file $FILE_PATH --device $BLOCK_DEVICE $bench_args"
   local bench_log="$case_dir/bench.log"
   echo "[stage12]   $bench_cmd"
   dry_cmd sh -c "$bench_cmd 2>&1" > "$bench_log" || true
@@ -199,7 +200,8 @@ run_case() {
           if [[ -r "$af" ]]; then
             after_val=$(cat "$af" 2>/dev/null || echo 0)
           fi
-          local delta=$((after_val - before_val))
+          local delta
+          delta=$((after_val - before_val))
           echo "${c}_delta=$delta"
         done
       fi
