@@ -118,6 +118,28 @@ resolve_bench_binary() {
   fi
 }
 
+repo_relative_path() {
+  local path="$1"
+  if [[ -z "$path" ]]; then
+    printf '%s\n' ""
+    return 0
+  fi
+
+  if [[ "$path" != /* ]]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+
+  case "$path" in
+    "$REPO_ROOT"/*)
+      printf '%s\n' "${path#"$REPO_ROOT"/}"
+      ;;
+    *)
+      printf '%s\n' "$(basename "$path")"
+      ;;
+  esac
+}
+
 if $DRY_RUN; then
   {
     echo "DRY RUN: validation commands not executed"
@@ -171,7 +193,7 @@ fi
 benchmark_binary="$(resolve_bench_binary)"
 if [[ -n "$benchmark_binary" ]]; then
   SUMMARY[benchmark_exists]="true"
-  SUMMARY[benchmark_binary]="$benchmark_binary"
+  SUMMARY[benchmark_binary]="$(repo_relative_path "$benchmark_binary")"
   if $DRY_RUN; then
     printf '%s\n' "$benchmark_binary --help" > "$benchmark_version_log"
   else
@@ -181,6 +203,8 @@ else
   SUMMARY[benchmark_exists]="false"
   : > "$benchmark_version_log"
 fi
+
+SUMMARY[results_dir]="$(repo_relative_path "$RESULTS_DIR")"
 
 if $DRY_RUN; then
   printf '%s\n' "./scripts/run_stage6_placement_experiment.sh \"$TEST_FILE\" loop0 --skip-counters --dry-run --duration \"$DURATION\"" > "$stage6_dryrun_log"

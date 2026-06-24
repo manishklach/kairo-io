@@ -55,6 +55,6 @@ WSL: true
 - user_bench_baseline.log
 - user_bench_mixed.log
 
-Results directory: `/mnt/c/Users/ManishKL/Documents/Playground/kv-io/results/validation/20260624-091715`
+Results directory: `results/validation/20260624-091715`
 
 Notes: WSL validation only; no custom kernel boot, no Kairo sysfs counters, no physical NVMe placement validation.

@@ -73,40 +73,81 @@ run_case() {
   local write_threads="$5"
   local evict_threads="$6"
   local case_dir="$RESULTS_DIR/$case_label"
+  local tenants
+  local tenant_mode
+  local models=1
+  local sessions=1
+  local noisy_model=0
+  local noisy_session=0
+  local noisy_multiplier=1
 
   mkdir -p "$case_dir"
   mkdir -p "$case_dir/counters-before" "$case_dir/counters-after"
 
-  cat > "$case_dir/command.txt" <<CMDEOL
-$0 "$FILE_PATH" "$BLOCK_DEV" --duration $DURATION --bench "$BENCH" --hint-mode "$HINT_MODE" --results-dir "$RESULTS_DIR"
-CMDEOL
-
   collect_counters "$case_label/counters-before"
 
-  local tenants
-  local tenant_mode
   case "$case_label" in
-    01*) tenants=1; tenant_mode="production" ;;
-    02*) tenants=2; tenant_mode="mixed" ;;
-    03*) tenants=2; tenant_mode="mixed" ;;
-    04*) tenants=4; tenant_mode="mixed" ;;
-    05*) tenants=2; tenant_mode="background" ;;
+    01*)
+      tenants=1
+      tenant_mode="production"
+      ;;
+    02*)
+      tenants=2
+      tenant_mode="mixed"
+      models=2
+      sessions=2
+      noisy_model=1
+      noisy_multiplier=6
+      ;;
+    03*)
+      tenants=2
+      tenant_mode="mixed"
+      models=2
+      sessions=2
+      noisy_session=1
+      noisy_multiplier=6
+      ;;
+    04*)
+      tenants=4
+      tenant_mode="mixed"
+      models=4
+      sessions=4
+      noisy_model=2
+      noisy_session=3
+      noisy_multiplier=8
+      ;;
+    05*)
+      tenants=2
+      tenant_mode="background"
+      models=2
+      sessions=4
+      noisy_model=1
+      noisy_session=1
+      noisy_multiplier=12
+      ;;
   esac
 
   local bench_cmd
   bench_cmd=("$BENCH" --file "$FILE_PATH" --runtime "$DURATION" --mode "$mode" \
     --hint-mode "$HINT_MODE" \
+    --models "$models" \
+    --sessions "$sessions" \
     --decode-threads "$decode_threads" \
     --prefetch-threads "$prefetch_threads" \
     --write-threads "$write_threads" \
     --evict-threads "$evict_threads")
 
-  # Add tenant flags if benchmark supports them; otherwise placeholders
-  if [[ "$case_label" != "01-single-tenant-production" ]]; then
-    bench_cmd+=(--tenants "$tenants" --tenant-mode "$tenant_mode")
+  if (( noisy_model > 0 )); then
+    bench_cmd+=(--noisy-model "$noisy_model" --noisy-multiplier "$noisy_multiplier")
+  fi
+  if (( noisy_session > 0 )); then
+    bench_cmd+=(--noisy-session "$noisy_session" --noisy-multiplier "$noisy_multiplier")
   fi
 
   local summary_file="$case_dir/summary.log"
+  : > "$case_dir/command.txt"
+  printf '%q ' "${bench_cmd[@]}" >> "$case_dir/command.txt"
+  printf '\n' >> "$case_dir/command.txt"
 
   if $DRY_RUN; then
     printf '%s\n' "${bench_cmd[*]}" > "$summary_file"
@@ -116,9 +157,14 @@ decode_p95_us=0
 decode_avg_us=0
 write_MBps=0
 prefetch_read_MBps=0
+models=${models}
+sessions=${sessions}
 tenant_id=1
 tenants=${tenants}
 tenant_mode=${tenant_mode}
+noisy_model=${noisy_model}
+noisy_session=${noisy_session}
+noisy_multiplier=${noisy_multiplier}
 kairo_blkg_decode_dispatches=0
 kairo_blkg_prefetch_dispatches=0
 kairo_blkg_prefill_writes=0
@@ -136,6 +182,14 @@ DRYEOF
   {
     echo "case=$case_label"
     echo "mode=$mode"
+    echo "models=$models"
+    echo "sessions=$sessions"
+    echo "tenant_id=1"
+    echo "tenants=$tenants"
+    echo "tenant_mode=$tenant_mode"
+    echo "noisy_model=$noisy_model"
+    echo "noisy_session=$noisy_session"
+    echo "noisy_multiplier=$noisy_multiplier"
   } >> "$summary_file"
 }
 

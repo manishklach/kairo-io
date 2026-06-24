@@ -268,30 +268,74 @@ kernel/patches/
   0007-rfc-kairo-placement-lifetime-hints.patch
   0008-rfc-kairo-nvme-zns-fdp-mapping.patch
   0009-rfc-kairo-sysfs-debug-counters.patch
-  0010-rfc-kairo-tracepoints-observability.patch
+  0010-rfc-kairo-request-classification-real.patch
+  0011-rfc-kairo-write-antistarvation-deadline.patch
+  0012-rfc-kairo-nvme-tag-reservation.patch
+  0013-rfc-kairo-mq-deadline-dispatch-O1.patch
+  0014-rfc-kairo-io-uring-sqe-hint-flag.patch
+  0015-rfc-kairo-merge-bias-real.patch
+  0016-rfc-kairo-bpf-dispatch-hook.patch
+  0017-rfc-kairo-tracepoints-observability.patch
+  0018-rfc-kairo-adaptive-latency-controller.patch
+  0020-rfc-kairo-model-session-fairness.patch
+  0022-rfc-kairo-foundation-tracepoints-linux-6.8.patch
+  0023-rfc-kairo-decode-latency-histogram.patch
+  0024-rfc-kairo-controller-feedback-wiring.patch
+  0025-rfc-kairo-fairness-accounting-sysfs.patch
+  0026-rfc-kairo-blkcg-ai-io-controller.patch
+  0027-rfc-kairo-io-uring-kv-region-hints.patch
 ```
 
-This broader series is the architecture map. Not every patch in this track is compile-targeted yet.
+This broader series is the architecture map. Not every patch in this track is compile-targeted yet, and numbering intentionally has gaps where intermediate local RFC ideas were not retained in the repo.
 
 ---
 
-## Current Feature Map
+## Current Stages
 
-| Area                                  | Status                                |
-| ------------------------------------- | ------------------------------------- |
-| Request classification                | Foundation + RFC                      |
-| Decode-read prioritization            | Foundation + RFC                      |
-| Prefetch deadline policy              | Foundation + RFC                      |
-| Prefill-write demotion                | Foundation + RFC                      |
-| Eviction/discard accounting           | Foundation + RFC                      |
-| Sysfs counters                        | Foundation + RFC                      |
-| Request-shape / merge instrumentation | RFC scaffold                          |
-| `io_uring` / `RWF_*` hint plumbing    | RFC scaffold                          |
-| Ephemeral / recomputable semantics    | RFC scaffold                          |
-| Model/session/lifetime metadata       | RFC scaffold + benchmark-visible      |
-| Generic backend mapping               | RFC scaffold + benchmark-visible      |
-| NVMe Streams/FDP/ZNS hooks            | Audit scaffold, no physical placement |
-| Tracepoint observability              | RFC scaffold                          |
+| Stage | Scope | Patch / Track | State |
+| --- | --- | --- | --- |
+| Foundation | Linux 6.8.x compile-targeted subset | foundation `0001`-`0005` | locally apply/build validated |
+| Stage 6 | model/session/lifetime placement experiments | `0007`, `0009` | implemented in benchmark and harness |
+| Stage 7 | generic NVMe backend mapping scaffold | `0008`, `0009` | implemented as generic mapping scaffold |
+| Stage 7.5 | NVMe hook audit and risk classification | `0008` rewrite + audit docs/scripts | implemented |
+| Stage 8 | observability and trace scaffolding | `0017` | scaffolded in broad RFC/POC series |
+| Stage 9 | WSL validation snapshot packaging | tooling only | implemented |
+| Stage 10 | adaptive latency controller | `0018` | partially implemented, partially conceptual |
+| Stage 11 | Linux 6.8 foundation tracepoints | foundation `0005`, broad `0022` | compile-targeted foundation path |
+| Stage 12 | model/session fairness scheduler | `0020` | conceptual scheduler scaffold |
+| Stage 13 | decode latency histogram | `0023` | histogram scaffold + experiment tooling |
+| Stage 14 | controller feedback wiring | `0024` | partial compile-target helpers + conceptual dispatch hook |
+| Stage 15 | fairness accounting and sysfs wiring | `0025` | conceptual wiring + experiment tooling |
+| Stage 16 | blk-cgroup AI I/O controller | `0026` | conceptual blkcg scaffold + experiment tooling |
+| Stage 17 | io_uring KV region hints | `0027` | conceptual io_uring region scaffold + experiment tooling |
+
+For the detailed tracker, use:
+
+* [docs/full_architecture_status.md](docs/full_architecture_status.md)
+* [docs/implementation_stages.md](docs/implementation_stages.md)
+* [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
+
+---
+
+## Advanced Feature Map
+
+| Area | Implemented Today | Still Experimental / Conceptual |
+| --- | --- | --- |
+| Decode-read prioritization | foundation stack + broad RFC patches | broader multi-stage tuning is still benchmark-driven |
+| Request classification | base classification (`0002`) plus real request-init path (`0010`) | full runtime hint plumbing beyond current paths |
+| Prefetch / prefill / evict policy | foundation stack policy and accounting | scheduler refinements under later stages |
+| Write anti-starvation | `0011` scaffolded in broad RFC/POC series | runtime validation on patched kernel pending |
+| Tag reservation | `0012` broad series patch | patched-kernel validation pending |
+| O(1) dispatch path | `0013` broad series patch | patched-kernel validation pending |
+| Merge bias / request shaping | `0004` foundation instrumentation + `0015` broad-series merge path | impact on real NVMe traffic still unvalidated |
+| `io_uring` hints | `0014` SQE flag and `0027` region-hint scaffold | end-to-end kernel plumbing remains experimental |
+| Ephemeral / recomputable semantics | user/kernel hint scaffolds | no production ABI claimed |
+| Placement / lifetime metadata | benchmark-visible and metadata-visible | physical device placement not claimed |
+| Generic NVMe backend mapping | benchmark-visible generic mapping scaffold | real Streams/FDP/ZNS placement unvalidated |
+| Tracepoints and tracing tools | Stage 8/11 trace scaffolds, parsers, `bpftrace` helpers | stable ABI and patched-kernel availability not claimed |
+| Adaptive controller | Stage 10 control policy and sysfs scaffold | decode latency observation path remains incomplete |
+| Fairness and tenant isolation | Stage 12/15 fairness scaffolds | real scheduler enforcement remains conceptual |
+| blk-cgroup AI controller | Stage 16 experiment scaffold | cgroup interface and dispatch hooks remain conceptual |
 
 ---
 
@@ -390,6 +434,54 @@ This is intentionally temporary. The broader RFC path also explores `io_uring` a
 
 On an unpatched kernel, trace experiments should still run and report tracepoint availability honestly.
 
+### Stage 10 adaptive controller experiment
+
+```bash
+./scripts/run_stage10_latency_controller_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 11 foundation trace experiment
+
+```bash
+./scripts/run_stage11_foundation_trace_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 12 fairness experiment
+
+```bash
+./scripts/run_stage12_fairness_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 13 decode histogram experiment
+
+```bash
+./scripts/run_stage13_latency_histogram_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 14 controller feedback experiment
+
+```bash
+./scripts/run_stage14_controller_feedback_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 15 fairness accounting experiment
+
+```bash
+./scripts/run_stage15_fairness_accounting_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 16 blk-cgroup AI controller experiment
+
+```bash
+./scripts/run_stage16_blkcg_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 17 io_uring KV region experiment
+
+```bash
+./scripts/run_stage17_io_uring_region_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
 ---
 
 ## Success Metrics
@@ -448,14 +540,23 @@ Tracepoint audit:
 
 ---
 
-## Validation Status
+## Validation Path
 
 Tracked validation lives in:
 
 * [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
 * [docs/full_architecture_status.md](docs/full_architecture_status.md)
+* [docs/validation_snapshot.md](docs/validation_snapshot.md)
 * [docs/kernel_foundation_stack.md](docs/kernel_foundation_stack.md)
 * [docs/kernel_foundation_invariants.md](docs/kernel_foundation_invariants.md)
+
+Primary validation entry points:
+
+```bash
+./scripts/run_wsl_validation_snapshot.sh
+./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1
+./scripts/run_ab_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
 
 Current status, at a high level:
 
@@ -463,13 +564,15 @@ Current status, at a high level:
 Foundation patch apply:       locally validated on Linux 6.8.x path
 Foundation symbol validation: locally validated
 mq-deadline object build:     locally validated
+blk-mq object build:          not yet cleanly validated in matrix
 Boot validation:              pending
 Runtime sysfs visibility:     pending
 Benchmark counter movement:   pending
+Stage 8-17 harnesses:         implemented, but mostly dry-run/user-space validated
 Full RFC series compile:      not claimed
 ```
 
-Kairo intentionally separates what is implemented, what is scaffolded, and what is validated.
+Kairo intentionally separates what is implemented, what is scaffolded, and what is validated. This repo is an internal RFC/POC and benchmark-driven prototype, not a claim that the full Stage 10-17 kernel path has been boot-tested or benchmark-validated on patched generic NVMe SSDs.
 
 ---
 
@@ -487,6 +590,15 @@ Key docs:
 * [docs/stage7_generic_nvme_backend_mapping.md](docs/stage7_generic_nvme_backend_mapping.md)
 * [docs/stage7_5_nvme_hook_audit.md](docs/stage7_5_nvme_hook_audit.md)
 * [docs/stage8_kernel_observability.md](docs/stage8_kernel_observability.md)
+* [docs/stage10_adaptive_latency_controller.md](docs/stage10_adaptive_latency_controller.md)
+* [docs/stage11_foundation_tracepoints.md](docs/stage11_foundation_tracepoints.md)
+* [docs/stage12_model_session_fairness.md](docs/stage12_model_session_fairness.md)
+* [docs/stage13_decode_latency_histogram.md](docs/stage13_decode_latency_histogram.md)
+* [docs/stage14_controller_feedback_wiring.md](docs/stage14_controller_feedback_wiring.md)
+* [docs/stage15_fairness_accounting_sysfs.md](docs/stage15_fairness_accounting_sysfs.md)
+* [docs/stage16_blkcg_ai_io_controller.md](docs/stage16_blkcg_ai_io_controller.md)
+* [docs/stage17_io_uring_kv_region_hints.md](docs/stage17_io_uring_kv_region_hints.md)
+* [docs/validation_snapshot.md](docs/validation_snapshot.md)
 * [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
 
 ---

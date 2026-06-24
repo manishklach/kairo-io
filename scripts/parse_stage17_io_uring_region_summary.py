@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import glob
 import re
 import sys
 from pathlib import Path
@@ -52,6 +53,19 @@ def render_pretty(rows: list[dict[str, str]]) -> str:
     return "\n".join(out) + "\n"
 
 
+def expand_patterns(patterns: list[str]) -> list[Path]:
+    logs: list[Path] = []
+    for pattern in patterns:
+        expanded = [Path(match) for match in glob.glob(pattern)]
+        if expanded:
+            logs.extend(expanded)
+            continue
+        p = Path(pattern)
+        if p.exists():
+            logs.append(p)
+    return logs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Parse Stage 17 io_uring KV region hint summary logs"
@@ -65,15 +79,7 @@ def main() -> int:
     if not args.csv and not args.pretty:
         args.pretty = True
 
-    logs: list[Path] = []
-    for pattern in args.summary_logs:
-        expanded = list(Path().glob(pattern))
-        if expanded:
-            logs.extend(expanded)
-        else:
-            p = Path(pattern)
-            if p.exists():
-                logs.append(p)
+    logs = expand_patterns(args.summary_logs)
 
     rows = []
     for log in sorted(set(logs)):

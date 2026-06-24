@@ -56,6 +56,19 @@ def parse_summary(path: Path) -> dict[str, str]:
     return data
 
 
+def display_path(value: str) -> str:
+    if not value:
+        return ""
+    path = Path(value)
+    if path.is_absolute():
+        parts = path.parts
+        for marker in ("results", "bench", "docs", "scripts"):
+            if marker in parts:
+                return "/".join(parts[parts.index(marker):])
+        return path.name
+    return value
+
+
 def render_markdown(data: dict[str, str]) -> str:
     lines = [
         "# Kairo Validation Snapshot",
@@ -99,16 +112,16 @@ def render_markdown(data: dict[str, str]) -> str:
             "- stage7_dryrun.log",
             "- stage8_dryrun.log",
             "- stage13_dryrun.log",
-        "- stage14_dryrun.log",
-        "- stage15_dryrun.log",
-        "- stage16_dryrun.log",
-        "- stage17_dryrun.log",
-        "- user_bench_baseline.log",
+            "- stage14_dryrun.log",
+            "- stage15_dryrun.log",
+            "- stage16_dryrun.log",
+            "- stage17_dryrun.log",
+            "- user_bench_baseline.log",
             "- user_bench_mixed.log",
         ]
     )
     if data.get("results_dir"):
-        lines.extend(["", f"Results directory: `{data['results_dir']}`"])
+        lines.extend(["", f"Results directory: `{display_path(data['results_dir'])}`"])
     if data.get("notes"):
         lines.extend(["", f"Notes: {data['notes']}"])
     return "\n".join(lines) + "\n"
