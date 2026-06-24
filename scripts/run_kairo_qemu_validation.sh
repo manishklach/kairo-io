@@ -11,7 +11,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 BUILD_SCRIPT="$REPO_ROOT/kernel/integration/linux-6.8/build_kairo_qemu_kernel.sh"
 INIT_SCRIPT="$REPO_ROOT/scripts/kairo-qemu-init.sh"
 BENCH_BINARY="$REPO_ROOT/kairo_bench"
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 RESULTS_DIR="$REPO_ROOT/results/qemu-validation/$TIMESTAMP"
 KERNEL_IMAGE=""
 LINUX_DIR="${LINUX_DIR:-$HOME/linux-6.8}"
@@ -71,7 +71,7 @@ else
 fi
 
 echo "[kairo-qemu] === Creating initramfs ==="
-INITRAMFS_DIR=$(mktemp -d)
+INITRAMFS_DIR=$(mktemp -d) || { echo "mktemp failed"; exit 1; }
 trap 'rm -rf "$INITRAMFS_DIR"' EXIT
 
 # Create minimal rootfs layout
@@ -120,7 +120,7 @@ fi
 # Build initramfs cpio archive
 (
   cd "$INITRAMFS_DIR"
-  find . | cpio -o -H newc -R root:root 2>/dev/null | gzip -9 > "$RESULTS_DIR/initramfs.cpio.gz"
+  find . | cpio --quiet -o -H newc -R root:root | gzip -9 > "$RESULTS_DIR/initramfs.cpio.gz"
 )
 echo "[kairo-qemu] initramfs: $RESULTS_DIR/initramfs.cpio.gz"
 

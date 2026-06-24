@@ -30,17 +30,16 @@ fi
 KAIRO_SYSFS="/sys/kernel/kairo/counters"
 PASS=0
 FAIL=0
-SKIP=0
 
 check_counter() {
-  local name="$1"
-  local file="$KAIRO_SYSFS/$name"
-  if [ -r "$file" ]; then
-    val=$(cat "$file" 2>/dev/null || echo "unreadable")
-    echo "[kairo-qemu]   COUNTER $name = $val"
+  _name="$1"
+  _file="$KAIRO_SYSFS/$_name"
+  if [ -r "$_file" ]; then
+    _val=$(cat "$_file" 2>/dev/null || echo "unreadable")
+    echo "[kairo-qemu]   COUNTER $_name = $_val"
     PASS=$((PASS + 1))
   else
-    echo "[kairo-qemu]   MISSING $name"
+    echo "[kairo-qemu]   MISSING $_name"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -139,6 +138,6 @@ else
 fi
 
 echo "[kairo-qemu] === KAIRO QEMU VALIDATION COMPLETE ==="
-echo "[kairo-qemu] PASS:$PASS FAIL:$FAIL SKIP:$SKIP"
+echo "[kairo-qemu] PASS:$PASS FAIL:$FAIL"
 sleep 1
 poweroff -f
