@@ -48,7 +48,6 @@ done
 mkdir -p "$RESULTS_DIR"
 
 summary_csv="$RESULTS_DIR/summary.csv"
-case_index=0
 cases=(
   "01-decode-only:decode-only:4:0:0:0"
   "02-mixed-pressure:mixed:2:1:1:0"
