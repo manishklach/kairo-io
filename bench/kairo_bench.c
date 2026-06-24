@@ -1221,11 +1221,22 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     double write_mbps;
     double evict_mbps;
     double *sorted = NULL;
+    uint64_t decode_lat_0_10us = 0;
+    uint64_t decode_lat_10_25us = 0;
+    uint64_t decode_lat_25_50us = 0;
+    uint64_t decode_lat_50_100us = 0;
+    uint64_t decode_lat_100_250us = 0;
+    uint64_t decode_lat_250_500us = 0;
+    uint64_t decode_lat_500_1000us = 0;
+    uint64_t decode_lat_1ms_2ms = 0;
+    uint64_t decode_lat_2ms_5ms = 0;
+    uint64_t decode_lat_gt_5ms = 0;
     struct kairo_stats_snapshot snapshot;
 
     snapshot_stats((struct kairo_stats *)stats, &snapshot);
 
     if (snapshot.decode_latency_samples > 0) {
+        uint64_t i;
         sorted = malloc((size_t)snapshot.decode_latency_samples * sizeof(*sorted));
         if (sorted == NULL) {
             perror("malloc");
@@ -1239,6 +1250,29 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
         decode_p50_us = percentile_from_sorted(sorted, snapshot.decode_latency_samples, 50.0);
         decode_p95_us = percentile_from_sorted(sorted, snapshot.decode_latency_samples, 95.0);
         decode_p99_us = percentile_from_sorted(sorted, snapshot.decode_latency_samples, 99.0);
+        for (i = 0; i < snapshot.decode_latency_samples; i++) {
+            double lat = snapshot.decode_latencies_us[i];
+            if (lat <= 10.0)
+                decode_lat_0_10us++;
+            else if (lat <= 25.0)
+                decode_lat_10_25us++;
+            else if (lat <= 50.0)
+                decode_lat_25_50us++;
+            else if (lat <= 100.0)
+                decode_lat_50_100us++;
+            else if (lat <= 250.0)
+                decode_lat_100_250us++;
+            else if (lat <= 500.0)
+                decode_lat_250_500us++;
+            else if (lat <= 1000.0)
+                decode_lat_500_1000us++;
+            else if (lat <= 2000.0)
+                decode_lat_1ms_2ms++;
+            else if (lat <= 5000.0)
+                decode_lat_2ms_5ms++;
+            else
+                decode_lat_gt_5ms++;
+        }
     }
 
     decode_read_mbps = cfg->runtime_seconds
@@ -1309,6 +1343,16 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("prefetch_read_MBps=%.2f\n", prefetch_read_mbps);
     printf("write_MBps=%.2f\n", write_mbps);
     printf("evict_MBps=%.2f\n", evict_mbps);
+    printf("decode_lat_0_10us=%" PRIu64 "\n", decode_lat_0_10us);
+    printf("decode_lat_10_25us=%" PRIu64 "\n", decode_lat_10_25us);
+    printf("decode_lat_25_50us=%" PRIu64 "\n", decode_lat_25_50us);
+    printf("decode_lat_50_100us=%" PRIu64 "\n", decode_lat_50_100us);
+    printf("decode_lat_100_250us=%" PRIu64 "\n", decode_lat_100_250us);
+    printf("decode_lat_250_500us=%" PRIu64 "\n", decode_lat_250_500us);
+    printf("decode_lat_500_1000us=%" PRIu64 "\n", decode_lat_500_1000us);
+    printf("decode_lat_1ms_2ms=%" PRIu64 "\n", decode_lat_1ms_2ms);
+    printf("decode_lat_2ms_5ms=%" PRIu64 "\n", decode_lat_2ms_5ms);
+    printf("decode_lat_gt_5ms=%" PRIu64 "\n", decode_lat_gt_5ms);
     printf("ioprio_decode_ok=%" PRIu64 "\n", snapshot.ioprio_decode_ok);
     printf("ioprio_decode_fail=%" PRIu64 "\n", snapshot.ioprio_decode_fail);
     printf("ioprio_prefetch_ok=%" PRIu64 "\n", snapshot.ioprio_prefetch_ok);

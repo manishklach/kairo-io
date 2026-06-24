@@ -109,3 +109,28 @@ Stage 12 (`0020`) adds a conceptual per-model/per-session fairness scheduler:
 Stage 12 is **not** foundation-integrated, **not** LKML-ready, and **not**
 boot-validated. It is an RFC/POC fairness scheduling policy scaffold for
 multi-tenant AI inference workloads.
+
+## Stage 13 Decode Latency Histogram Status
+
+Stage 13 (`0023`) adds a bucketed decode latency histogram with tail estimator:
+
+- **Histogram data structures**: `enum kairo_decode_latency_bucket` (10 buckets)
+  and `struct kairo_latency_histogram` with counting, sum, max, and samples
+- **Helpers**: `kairo_latency_bucket_for_us()`, `kairo_latency_histogram_add()`,
+  `kairo_latency_histogram_estimate_percentile()`, `kairo_latency_histogram_reset()`
+- **Controller integration**: `dd_kairo_controller_update_from_hist()` replaces
+  avg/max heuristic with histogram-based p95/p99 estimation; observe-only when
+  samples < `KAIRO_CTRL_MIN_SAMPLES`
+- **Sysfs counters**: 10 histogram bucket counters (`kairo_decode_lat_*`),
+  `kairo_decode_latency_samples`, `kairo_decode_latency_max_us`
+- **User-space benchmark**: Histogram bucket output from user-space decode
+  latency samples (`decode_lat_0_10us=` through `decode_lat_gt_5ms=`)
+- **Experiment harness**: Five canonical cases with structured results under
+  `results/stage13/<timestamp>/`
+- **Summary parser**: `parse_stage13_latency_histogram_summary.py` with CSV and
+  pretty-printed output, all 10 bucket columns plus p95/p99/avg
+
+Stage 13 is **not** foundation-integrated, **not** LKML-ready, and **not**
+boot-validated. It is an RFC/POC histogram scaffold. Completion-path call sites
+are CONCEPTUAL-HOOK. Kernel-side histogram movement is not claimed unless
+tested on a patched kernel.

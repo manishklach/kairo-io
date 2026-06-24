@@ -459,6 +459,49 @@ stage12_has_pattern "$P12SP" "kairo_fairness_refills_delta"
 grep -qF "kairo_fairness_refills" "$REPO_ROOT/scripts/collect_kairo_counters.sh" || \
   fail "Stage 12: collect_kairo_counters.sh missing kairo_fairness_refills"
 
+# Stage 13: verify decode latency histogram
+stage13_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 13: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage13_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 13: missing file: $1"
+}
+
+P23="$PATCH_DIR/0023-rfc-kairo-decode-latency-histogram.patch"
+DOC13="$REPO_ROOT/docs/stage13_decode_latency_histogram.md"
+R13SE="$REPO_ROOT/scripts/run_stage13_latency_histogram_experiment.sh"
+P13SP="$REPO_ROOT/scripts/parse_stage13_latency_histogram_summary.py"
+
+stage13_file_exists "$P23"
+stage13_file_exists "$DOC13"
+stage13_file_exists "$R13SE"
+stage13_file_exists "$P13SP"
+stage13_has_pattern "$P23" "enum kairo_decode_latency_bucket"
+stage13_has_pattern "$P23" "struct kairo_latency_histogram"
+stage13_has_pattern "$P23" "kairo_latency_histogram_add"
+stage13_has_pattern "$P23" "kairo_latency_histogram_estimate_percentile"
+stage13_has_pattern "$P23" "kairo_latency_histogram_reset"
+stage13_has_pattern "$DOC13" "bucketed histogram"
+stage13_has_pattern "$R13SE" "results/stage13"
+stage13_has_pattern "$R13SE" "block-device"
+stage13_has_pattern "$P13SP" "--csv"
+stage13_has_pattern "$P13SP" "--pretty"
+stage13_has_pattern "$P13SP" "decode_lat_0_10us"
+
+# Verify bench prints histogram buckets
+grep -qF "decode_lat_0_10us=" "$REPO_ROOT/bench/kairo_bench.c" || \
+  fail "Stage 13: bench missing decode_lat_0_10us="
+
+# Verify collect_kairo_counters.sh includes histogram bucket counters
+grep -qF "kairo_decode_lat_0_10us" "$REPO_ROOT/scripts/collect_kairo_counters.sh" || \
+  fail "Stage 13: collect_kairo_counters.sh missing kairo_decode_lat_0_10us"
+
+# Verify WSL validation includes stage13_dryrun
+grep -qF "stage13_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
+  fail "Stage 13: run_wsl_validation_snapshot.sh missing stage13_dryrun"
+
 # Stage 9: verify WSL validation files
 [[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
 [[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"

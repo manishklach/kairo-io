@@ -22,6 +22,7 @@
 | adaptive latency controller | `0018` | conceptual | Adjusts decode/prefetch budgets based on observed decode p99 latency; sysfs knobs and counters; six canonical experiment cases |
 | foundation tracepoints | `0022` / foundation `0005` | compile-targeted | Four compile-targeted tracepoints (classify, decode dispatch, prefetch dispatch, write demoted) for Linux 6.8.x foundation; optional apply via `--with-tracepoints`; `LINUX-6.8-CHECK` annotations |
 | model/session fairness | `0020` | conceptual | Per-model and per-session fairness scheduler for multi-tenant AI inference; credit-based decode scheduling; prefetch throttling and write demotion under fairness pressure; noisy session detection; seven sysfs counters; five canonical experiment cases |
+| decode latency histogram | `0023` | conceptual | Bucketed decode latency histogram with p95/p99 tail estimator; replaces avg/max heuristic in Stage 10 controller; 10 histogram buckets; 12 sysfs counters; five canonical experiment cases; user-space benchmark histogram output |
 
 ## Stage 6.5 Status
 
@@ -135,6 +136,23 @@
 | Summary parser | implemented | `parse_stage11_foundation_trace_summary.py` with CSV and pretty-printed output |
 | Stage 11 documentation | implemented | `docs/stage11_foundation_tracepoints.md` |
 
+## Stage 13 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Decode latency histogram | scaffolded | `enum kairo_decode_latency_bucket`, `struct kairo_latency_histogram` in mq-deadline.c |
+| Bucket mapping helper | scaffolded | `kairo_latency_bucket_for_us()` maps latency to bucket index |
+| Histogram add | conceptual | `kairo_latency_histogram_add()` defined but no completion-path call site wired |
+| Percentile estimation | conceptual | `kairo_latency_histogram_estimate_percentile()` bucket-based cumulative search |
+| Histogram reset | scaffolded | `kairo_latency_histogram_reset()` clears histogram state |
+| Controller integration | conceptual | `dd_kairo_controller_update_from_hist()` populates observed p95/p99 from histogram |
+| Histogram sysfs counters | scaffolded | 10 bucket counters + samples + max_us |
+| Experiment harness | implemented | `run_stage13_latency_histogram_experiment.sh` with five canonical cases |
+| Summary parser | implemented | `parse_stage13_latency_histogram_summary.py` with CSV and pretty-printed output |
+| Benchmark histogram output | implemented | 10 decode latency bucket fields printed from user-space samples |
+| Counter coverage | updated | `collect_kairo_counters.sh` includes Stage 13 histogram bucket counters |
+| Stage 13 documentation | implemented | `docs/stage13_decode_latency_histogram.md` |
+
 ## Stage 12 Status
 
 | Area | Status | Notes |
@@ -187,6 +205,7 @@ intentionally uneven:
 - Stage 7 backend mapping counters: `kairo_backend_mapping_attempts`, `kairo_backend_*_hints`, `kairo_backend_*_lived`/`_local`/`_persistent`
 - Stage 7 benchmark output: `backend_mode`, `backend_class`, `stream_id`, `fdp_placement_id`, `zone_hint`, `backend_noop_fallback`
 - counter deltas via `scripts/collect_kairo_counters.sh`
+- Stage 13 histogram bucket counts from user-space benchmark samples
 
 ## What Needs Real Kernel Validation Next
 

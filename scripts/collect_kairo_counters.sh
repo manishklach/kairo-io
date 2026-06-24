@@ -118,6 +118,20 @@ counter_names=(
   kairo_controller_write_releases
   kairo_controller_insufficient_samples
 
+  # Stage 13: decode latency histogram bucket counters
+  kairo_decode_lat_0_10us
+  kairo_decode_lat_10_25us
+  kairo_decode_lat_25_50us
+  kairo_decode_lat_50_100us
+  kairo_decode_lat_100_250us
+  kairo_decode_lat_250_500us
+  kairo_decode_lat_500_1000us
+  kairo_decode_lat_1ms_2ms
+  kairo_decode_lat_2ms_5ms
+  kairo_decode_lat_gt_5ms
+  kairo_decode_latency_samples
+  kairo_decode_latency_max_us
+
   # Stage 12: per-model/session fairness counters
   kairo_fairness_refills
   kairo_fairness_model_throttles

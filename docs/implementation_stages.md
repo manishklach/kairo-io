@@ -328,3 +328,33 @@ framework:
   - interaction with Stage 10 adaptive controller
   - effectiveness on real multi-tenant AI inference workloads
   - optimal credit pool sizes for different inference patterns
+
+## Stage 13
+
+- Broad RFC/POC patches involved: `0023`
+- Docs: `docs/stage13_decode_latency_histogram.md`
+- Scripts:
+  - `scripts/run_stage13_latency_histogram_experiment.sh`
+  - `scripts/parse_stage13_latency_histogram_summary.py`
+- What should compile:
+  - `enum kairo_decode_latency_bucket` with 10 buckets
+  - `struct kairo_latency_histogram` with buckets, samples, sum_us, max_us
+  - helpers: `kairo_latency_bucket_for_us()`, `kairo_latency_histogram_add()`,
+    `kairo_latency_histogram_estimate_percentile()`, `kairo_latency_histogram_reset()`
+  - integration with Stage 10 controller via `dd_kairo_controller_update_from_hist()`
+  - 10 histogram bucket sysfs counters, plus samples and max_us
+- What should be measurable:
+  - histogram bucket counts from user-space benchmark samples
+  - p95/p99 from bucket estimation compared to true sorted percentile
+  - five canonical experiment cases covering various I/O patterns
+  - structured output under `results/stage13/<timestamp>/`
+  - parseable summary logs with CSV and pretty-printed tables
+  - benchmark histogram bucket output fields:
+    `decode_lat_0_10us`, `decode_lat_10_25us`, ..., `decode_lat_gt_5ms`
+- What is still RFC-only:
+  - completion-path histogram add call site (CONCEPTUAL-HOOK)
+  - timer-based histogram reset for sliding-window estimation
+  - bucket boundary tuning for real NVMe devices
+  - interaction with Stage 12 fairness
+  - tracepoint for histogram snapshot (future segment)
+  - merged histogram across devices

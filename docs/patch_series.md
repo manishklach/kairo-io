@@ -33,6 +33,7 @@ local apply/build target for Stage 1 and Stage 2 validation.
 | `0018` | adaptive latency controller | `block/mq-deadline` | Adjusts decode and prefetch budgets based on observed decode p99 tail latency; three modes (OFF/OBSERVE/ADAPTIVE); sysfs knobs and counters; six canonical experiment cases |
 | `0020` | model/session fairness | `block/mq-deadline` | Per-model and per-session fairness scheduling for multi-tenant AI inference; credit-based decode scheduling; per-entity decode credits with periodic refill; prefetch throttling and write demotion under fairness pressure; noisy session detection; seven sysfs counters and five tunables; five canonical experiment cases |
 | `0022` / foundation `0005` | foundation tracepoints | `include/trace/events/kairo.h`, `block/blk-mq.c`, `block/mq-deadline.c` | Compile-targeted foundation tracepoint subset (4 tracepoints: classify, decode dispatch, prefetch dispatch, write demoted); optional apply via `--with-tracepoints`; LINUX-6.8-CHECK annotations; distinct from Stage 8 broad scaffold |
+| `0023` | decode latency histogram | `block/mq-deadline.c` | Bucketed decode latency histogram with p95/p99 tail estimator; replaces coarse avg/max heuristic in Stage 10 adaptive controller; 10 histogram buckets from 0-10us to >5ms; enum, struct, helpers, sysfs counters; CONCEPTUAL-HOOK; user-space benchmark histogram output; five canonical experiment cases |
 
 ## Design Themes
 

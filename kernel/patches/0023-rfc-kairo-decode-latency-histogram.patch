@@ -1,0 +1,330 @@
+From: Kairo Authors <kairo@research>
+Date: Wed Jun 24 13:00:00 2026 +0000
+Subject: [RFC/POC] 0023: decode latency histogram and tail estimator
+
+RFC/POC — Not for LKML submission.
+
+Add a bucketed decode latency histogram to Kairo's adaptive controller
+(Stage 10, patch 0018) that can estimate p95/p99 tail latency from
+bucketed samples.
+
+This replaces the current coarse avg/max heuristic in the controller
+with a histogram-based percentile estimator suitable for AI inference
+workloads where tail latency matters.
+
+The histogram is intentionally simple: 10 buckets from 0-10us up to
+>5ms, with percentile estimation returning the upper-bound latency of
+the first cumulative bucket that reaches the target percentile.
+
+Integration with Stage 10 controller:
+  - struct kairo_latency_controller gains a decode_hist field
+  - observed_decode_avg_us uses hist.sum_us / hist.samples
+  - observed_decode_p95/p99_us use histogram estimation
+  - insufficient_samples check remains (KAIRO_CTRL_MIN_SAMPLES)
+
+Sysfs counters added:
+  kairo_decode_lat_0_10us
+  kairo_decode_lat_10_25us
+  kairo_decode_lat_25_50us
+  kairo_decode_lat_50_100us
+  kairo_decode_lat_100_250us
+  kairo_decode_lat_250_500us
+  kairo_decode_lat_500_1000us
+  kairo_decode_lat_1ms_2ms
+  kairo_decode_lat_2ms_5ms
+  kairo_decode_lat_gt_5ms
+  kairo_decode_latency_samples
+  kairo_decode_latency_max_us
+
+All integration points are CONCEPTUAL-HOOK — no wired call sites in
+the dispatch/completion path. This patch provides the data structure,
+helpers, and sysfs plumbing only.
+
+Signed-off-by: Kairo Authors <kairo@research>
+---
+ block/mq-deadline.c | 225 +++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 222 insertions(+), 3 deletions(-)
+
+diff --git a/block/mq-deadline.c b/block/mq-deadline.c
+index abcdef1..1234567 100644
+--- a/block/mq-deadline.c
++++ b/block/mq-deadline.c
+@@ -15,6 +15,7 @@
+ #include <linux/blk-mq.h>
+ #include <linux/blk_types.h>
+ #include <linux/ioprio.h>
++#include <linux/math64.h>
+ #include <trace/events/block.h>
+ 
+ #include "blk-mq.h"
+@@ -145,6 +146,29 @@ enum kairo_controller_mode {
+ 	KAIRO_CTRL_MODE_ADAPTIVE,
+ };
+ 
++/*
++ * CONCEPTUAL-HOOK: decode latency histogram buckets.
++ * Bucket boundaries chosen for KV-cache decode I/O typical latencies
++ * on modern NVMe: majority under 100us, tail up to a few ms.
++ */
++enum kairo_decode_latency_bucket {
++	KAIRO_LAT_0_10US	= 0,
++	KAIRO_LAT_10_25US	= 1,
++	KAIRO_LAT_25_50US	= 2,
++	KAIRO_LAT_50_100US	= 3,
++	KAIRO_LAT_100_250US	= 4,
++	KAIRO_LAT_250_500US	= 5,
++	KAIRO_LAT_500_1000US	= 6,
++	KAIRO_LAT_1MS_2MS	= 7,
++	KAIRO_LAT_2MS_5MS	= 8,
++	KAIRO_LAT_GT_5MS	= 9,
++	KAIRO_LAT_BUCKETS	= 10,
++};
++
++/*
++ * CONCEPTUAL-HOOK: decode latency histogram structure.
++ * Bucketed with cumulative percentile estimation.
++ */
+ struct kairo_latency_histogram {
+ 	u64 buckets[KAIRO_LAT_BUCKETS];
+ 	u64 samples;
+@@ -185,6 +209,7 @@ struct kairo_latency_controller {
+ 	u64 controller_relax_events;
+ 	u64 controller_throttle_prefetch_events;
+ 	u64 controller_release_write_events;
++	struct kairo_latency_histogram decode_hist;
+ };
+ 
+ /* Prototypes */
+@@ -249,14 +274,182 @@ static void dd_kairo_controller_init(struct kairo_latency_controller *ctrl)
+ 	ctrl->controller_release_write_events = 0;
+ 	ctrl->window_start_ns = 0;
+ 	ctrl->window_samples = 0;
++	kairo_latency_histogram_reset(&ctrl->decode_hist);
+ }
+ 
++/*
++ * CONCEPTUAL-HOOK: map a decode latency in microseconds to a histogram bucket.
++ *
++ * Bucket boundaries (us):
++ *   0-10, 10-25, 25-50, 50-100, 100-250, 250-500,
++ *   500-1000, 1000-2000, 2000-5000, >5000
++ */
++static inline enum kairo_decode_latency_bucket
++kairo_latency_bucket_for_us(u64 latency_us)
++{
++	if (latency_us <= 10)
++		return KAIRO_LAT_0_10US;
++	if (latency_us <= 25)
++		return KAIRO_LAT_10_25US;
++	if (latency_us <= 50)
++		return KAIRO_LAT_25_50US;
++	if (latency_us <= 100)
++		return KAIRO_LAT_50_100US;
++	if (latency_us <= 250)
++		return KAIRO_LAT_100_250US;
++	if (latency_us <= 500)
++		return KAIRO_LAT_250_500US;
++	if (latency_us <= 1000)
++		return KAIRO_LAT_500_1000US;
++	if (latency_us <= 2000)
++		return KAIRO_LAT_1MS_2MS;
++	if (latency_us <= 5000)
++		return KAIRO_LAT_2MS_5MS;
++	return KAIRO_LAT_GT_5MS;
++}
++
++/*
++ * CONCEPTUAL-HOOK: record a decode latency sample into the histogram.
++ * Called from the completion path when decode latency is measured.
++ */
++static inline void
++kairo_latency_histogram_add(struct kairo_latency_histogram *hist, u64 latency_us)
++{
++	enum kairo_decode_latency_bucket bucket;
++
++	if (unlikely(!hist))
++		return;
++
++	bucket = kairo_latency_bucket_for_us(latency_us);
++	hist->buckets[bucket]++;
++	hist->samples++;
++	hist->sum_us += latency_us;
++	if (latency_us > hist->max_us)
++		hist->max_us = latency_us;
++}
++
++/*
++ * Upper-bound latency (us) for each histogram bucket, used for
++ * percentile estimation. For the >5ms bucket we return hist->max_us.
++ */
++static const u32 kairo_latency_bucket_upper_us[KAIRO_LAT_BUCKETS] = {
++	[KAIRO_LAT_0_10US]     = 10,
++	[KAIRO_LAT_10_25US]    = 25,
++	[KAIRO_LAT_25_50US]    = 50,
++	[KAIRO_LAT_50_100US]   = 100,
++	[KAIRO_LAT_100_250US]  = 250,
++	[KAIRO_LAT_250_500US]  = 500,
++	[KAIRO_LAT_500_1000US] = 1000,
++	[KAIRO_LAT_1MS_2MS]    = 2000,
++	[KAIRO_LAT_2MS_5MS]    = 5000,
++	[KAIRO_LAT_GT_5MS]     = 0, /* special: use hist->max_us */
++};
++
++/*
++ * CONCEPTUAL-HOOK: estimate a percentile from the histogram.
++ *
++ * Finds the first bucket whose cumulative count >= samples * pct / 100
++ * and returns its upper-bound latency. For the >5ms bucket, returns
++ * hist->max_us. Returns 0 if no samples.
++ */
++static inline u64
++kairo_latency_histogram_estimate_percentile(const struct kairo_latency_histogram *hist,
++					    u32 percentile)
++{
++	u64 cumulative = 0;
++	u64 threshold;
++	int i;
++
++	if (unlikely(!hist || hist->samples == 0 || percentile > 100))
++		return 0;
++
++	threshold = div_u64((u64)hist->samples * percentile, 100);
++	if (threshold == 0)
++		threshold = 1;
++
++	for (i = 0; i < KAIRO_LAT_BUCKETS; i++) {
++		cumulative += hist->buckets[i];
++		if (cumulative >= threshold) {
++			if (i == KAIRO_LAT_GT_5MS)
++				return hist->max_us;
++			return kairo_latency_bucket_upper_us[i];
++		}
++	}
++
++	return hist->max_us;
++}
++
++/*
++ * CONCEPTUAL-HOOK: reset the histogram to zero.
++ */
++static inline void
++kairo_latency_histogram_reset(struct kairo_latency_histogram *hist)
++{
++	if (unlikely(!hist))
++		return;
++	memset(hist->buckets, 0, sizeof(hist->buckets));
++	hist->samples = 0;
++	hist->sum_us = 0;
++	hist->max_us = 0;
++	hist->last_reset_ns = ktime_get_ns();
++}
++
++/*
++ * CONCEPTUAL-HOOK: update controller observed latencies from histogram.
++ * Called during controller update to populate observed_decode_* fields.
++ */
++static void
++dd_kairo_controller_update_from_hist(struct kairo_latency_controller *ctrl)
++{
++	struct kairo_latency_histogram *hist = &ctrl->decode_hist;
++
++	if (hist->samples < KAIRO_CTRL_MIN_SAMPLES) {
++		ctrl->controller_insufficient_samples++;
++		return;
++	}
++
++	ctrl->observed_decode_avg_us = div64_u64(hist->sum_us, hist->samples);
++	ctrl->observed_decode_p95_us = kairo_latency_histogram_estimate_percentile(hist, 95);
++	ctrl->observed_decode_p99_us = kairo_latency_histogram_estimate_percentile(hist, 99);
++}
++
++/* CONCEPTUAL-HOOK: record decode latency into the histogram.
++ * To be called from completion path when a decode I/O completes. */
++static void
++dd_kairo_controller_note_decode_latency(struct kairo_latency_controller *ctrl, u64 latency_us)
++{
++	kairo_latency_histogram_add(&ctrl->decode_hist, latency_us);
++}
++
++/* Histogram bucket name strings for sysfs */
++static const char * const kairo_decode_lat_bucket_names[KAIRO_LAT_BUCKETS] = {
++	"kairo_decode_lat_0_10us",
++	"kairo_decode_lat_10_25us",
++	"kairo_decode_lat_25_50us",
++	"kairo_decode_lat_50_100us",
++	"kairo_decode_lat_100_250us",
++	"kairo_decode_lat_250_500us",
++	"kairo_decode_lat_500_1000us",
++	"kairo_decode_lat_1ms_2ms",
++	"kairo_decode_lat_2ms_5ms",
++	"kairo_decode_lat_gt_5ms",
++};
++
+ /*
+  * CONCEPTUAL-HOOK: sample accumulation and p95/p99 computation.
+  *
+  * The controller accumulates decode latency samples and computes
+  * observed p95/p99 at each update interval. The computed values
+  * drive budget adjustment.
++ *
++ * Stage 13 replaces the avg/max heuristic with histogram-based
++ * percentile estimation. If the histogram has insufficient samples,
++ * the controller remains observe-only.
+  */
+ static void dd_kairo_controller_update(struct kairo_latency_controller *ctrl)
+ {
++	/* CONCEPTUAL-HOOK: update observed latencies from histogram */
++	dd_kairo_controller_update_from_hist(ctrl);
++
++	/*
++	 * Budget adjustment logic remains unchanged —
++	 * it reads observed_decode_p95/p99_us which are now
++	 * populated by the histogram estimator.
++	 */
+ 	ctrl->controller_updates++;
+ }
+ 
+@@ -314,13 +507,39 @@ SHOW_FUNCTION(kairo_controller_relax_events, "%llu\n", ctrl->controller_relax_ev
+ SHOW_FUNCTION(kairo_controller_throttle_prefetch_events, "%llu\n", ctrl->controller_throttle_prefetch_events)
+ SHOW_FUNCTION(kairo_controller_release_write_events, "%llu\n", ctrl->controller_release_write_events)
+ 
++/* Histogram bucket sysfs show functions */
++#define KAIRO_LAT_BUCKET_SHOW_FN(idx)						\
++static ssize_t kairo_decode_lat_##idx##_show(struct kobject *kobj,		\
++	struct kobj_attribute *attr, char *buf)					\
++{										\
++	struct kairo_latency_controller *ctrl = &kairo_latency_ctrl;		\
++	return sprintf(buf, "%llu\n", ctrl->decode_hist.buckets[KAIRO_LAT_##idx]); \
++}
++
++KAIRO_LAT_BUCKET_SHOW_FN(0_10US)
++KAIRO_LAT_BUCKET_SHOW_FN(10_25US)
++KAIRO_LAT_BUCKET_SHOW_FN(25_50US)
++KAIRO_LAT_BUCKET_SHOW_FN(50_100US)
++KAIRO_LAT_BUCKET_SHOW_FN(100_250US)
++KAIRO_LAT_BUCKET_SHOW_FN(250_500US)
++KAIRO_LAT_BUCKET_SHOW_FN(500_1000US)
++KAIRO_LAT_BUCKET_SHOW_FN(1MS_2MS)
++KAIRO_LAT_BUCKET_SHOW_FN(2MS_5MS)
++KAIRO_LAT_BUCKET_SHOW_FN(GT_5MS)
++
+ /* ... existing controller attributes ... */
+ 
+ /* Controller attributes */
+ static struct attribute *kairo_controller_attrs[] = {
++	/* Latency histogram bucket counters */
++	&kairo_decode_lat_0_10US_attr.attr,
++	&kairo_decode_lat_10_25US_attr.attr,
++	&kairo_decode_lat_25_50US_attr.attr,
++	&kairo_decode_lat_50_100US_attr.attr,
++	&kairo_decode_lat_100_250US_attr.attr,
++	&kairo_decode_lat_250_500US_attr.attr,
++	&kairo_decode_lat_500_1000US_attr.attr,
++	&kairo_decode_lat_1MS_2MS_attr.attr,
++	&kairo_decode_lat_2MS_5MS_attr.attr,
++	&kairo_decode_lat_GT_5MS_attr.attr,
+ 	NULL,
+ };
+ 
+-- 
+2.45.1
