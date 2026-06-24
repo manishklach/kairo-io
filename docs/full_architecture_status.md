@@ -27,6 +27,7 @@
 | fairness accounting and sysfs wiring | `0025` | conceptual | Wires Stage 12 fairness counters into sysfs boilerplate with DD_RO_ATTR macros; adds show/store for 5 tunables with bounds checking; adds show for 7 counters; counters wired into fairness hooks as event observations; LINUX-6.8-CHECK annotations |
 | blk-cgroup AI I/O controller | `0026` | conceptual | blk-cgroup policy scaffold mapping Kairo request classes to cgroup-level I/O budgets; `enum kairo_blkg_policy_class`, `struct kairo_blkg_policy`, `struct kairo_blkg_stats`; 5 conceptual hooks; blkcg audit script; cgroup interface files documented only |
 | io_uring KV region hints | `0027` | conceptual | io_uring KV region hint scaffold modeling AI runtime memory regions as registered buffer/file tags; `enum kairo_kv_region_type`, `struct kairo_kv_region_hint`; 2 conceptual hooks; io_uring audit script; user-space region hint structs and benchmark flags |
+| Recompute-aware eviction scheduler | `0028` | conceptual | Eviction-class model and scoring scaffold for AI KV-cache data; `enum kairo_eviction_class`, `struct kairo_eviction_decision`; 5 conceptual helpers; 10 sysfs eviction counters; recompute-aware eviction scoring; benchmark eviction policy modeling |
 
 ## Stage 6.5 Status
 
@@ -236,6 +237,21 @@
 | Experiment harness | implemented | `run_stage17_io_uring_region_experiment.sh` with five canonical cases |
 | Summary parser | implemented | `parse_stage17_io_uring_region_summary.py` with CSV and pretty-printed output |
 | Stage 17 documentation | implemented | `docs/stage17_io_uring_kv_region_hints.md` |
+
+## Stage 18 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Eviction class enum | scaffolded | `enum kairo_eviction_class` with 7 classes in blk-mq.h |
+| Eviction decision struct | scaffolded | `struct kairo_eviction_decision` with score, reason_flags, metadata |
+| Conceptual helpers | scaffolded | 5 helpers — all no-ops, not called from dispatch path |
+| Eviction score policy | scaffolded | 8 score constants, base score by class, conceptual penalties |
+| Sysfs counters | documented | 10 counters in `collect_kairo_counters.sh`, no kobject |
+| User-space header | implemented | `kairo_hints.h`: `enum kairo_eviction_policy_mode`, name helper |
+| Benchmark eviction flags | implemented | `--eviction-policy`, `--eviction-pressure` |
+| Experiment harness | implemented | `run_stage18_recompute_eviction_experiment.sh` with six canonical cases |
+| Summary parser | implemented | `parse_stage18_recompute_eviction_summary.py` with CSV/pretty output |
+| Stage 18 documentation | implemented | `docs/stage18_recompute_aware_eviction.md` |
 
 ## Current Read
 

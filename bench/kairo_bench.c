@@ -91,6 +91,8 @@ struct kairo_config {
     unsigned int kv_region_count;
     uint64_t kv_region_size;
     const char *registered_buffer_mode;
+    enum kairo_eviction_policy_mode eviction_policy;
+    unsigned int eviction_pressure;
 };
 
 struct kairo_stats {
@@ -391,6 +393,17 @@ static uint32_t parse_kv_region_type(const char *value)
     return KAIRO_USER_KV_REGION_NONE;
 }
 
+static enum kairo_eviction_policy_mode parse_eviction_policy(const char *value)
+{
+    if (strcmp(value, "recompute-aware") == 0)
+        return KAIRO_EVICT_POLICY_RECOMPUTE_AWARE;
+    if (strcmp(value, "lifetime") == 0)
+        return KAIRO_EVICT_POLICY_LIFETIME;
+    if (strcmp(value, "mixed") == 0)
+        return KAIRO_EVICT_POLICY_MIXED;
+    return KAIRO_EVICT_POLICY_NONE;
+}
+
 static uint32_t parse_lifetime(const char *value)
 {
     if (strcmp(value, "short") == 0)
@@ -453,7 +466,9 @@ static void usage(const char *prog)
              "  --kv-region-type <name>   decode|prefetch|session|model|recomputable\n"
              "  --kv-region-count <n>     Number of KV regions (default: 1)\n"
              "  --kv-region-size <B|K|M>  KV region size (default: 4M)\n"
-             "  --registered-buffer-mode <m> none|model|mock\n",
+              "  --registered-buffer-mode <m> none|model|mock\n"
+              "  --eviction-policy <name>    none|recompute-aware|lifetime|mixed\n"
+              "  --eviction-pressure <n>     Eviction pressure level (default: 0)\n",
              prog);
 }
 
@@ -615,6 +630,8 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->kv_region_count = 1;
     cfg->kv_region_size = 4UL * 1024 * 1024;
     cfg->registered_buffer_mode = "none";
+    cfg->eviction_policy = KAIRO_EVICT_POLICY_NONE;
+    cfg->eviction_pressure = 0;
 }
 
 static void apply_mode_defaults(struct kairo_config *cfg)
@@ -1354,6 +1371,13 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
     printf("kv_region_count=%u\n", cfg->kv_region_count);
     printf("kv_region_size=%" PRIu64 "\n", cfg->kv_region_size);
     printf("registered_buffer_mode=%s\n", cfg->registered_buffer_mode);
+    printf("eviction_policy=%s\n", kairo_eviction_policy_name(cfg->eviction_policy));
+    printf("eviction_recompute_ok=%d\n", cfg->recompute_ok);
+    printf("eviction_lifetime=%s\n", kairo_user_lifetime_name(cfg->lifetime_class));
+    printf("eviction_score_model=%s\n",
+           cfg->eviction_pressure >= 70 ? "high" :
+           cfg->eviction_pressure >= 30 ? "medium" : "low");
+    printf("eviction_pressure=%u\n", cfg->eviction_pressure);
     {
         struct kairo_backend_model m = kairo_compute_backend_model(cfg);
         printf("backend_mode=%s\n", kairo_backend_mode_name(cfg->backend_mode));
@@ -1476,6 +1500,8 @@ int main(int argc, char **argv)
         {"kv-region-count", required_argument, NULL, 23},
         {"kv-region-size", required_argument, NULL, 24},
         {"registered-buffer-mode", required_argument, NULL, 25},
+        {"eviction-policy", required_argument, NULL, 26},
+        {"eviction-pressure", required_argument, NULL, 27},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -1589,6 +1615,12 @@ int main(int argc, char **argv)
             break;
         case 25:
             cfg.registered_buffer_mode = optarg;
+            break;
+        case 26:
+            cfg.eviction_policy = parse_eviction_policy(optarg);
+            break;
+        case 27:
+            cfg.eviction_pressure = (unsigned int)parse_size(optarg, "eviction-pressure");
             break;
         case 4:
             cfg.stride_blocks = (unsigned int)parse_size(optarg, "stride-blocks");

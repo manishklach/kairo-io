@@ -251,3 +251,42 @@ The kernel region store does not exist. Dispatch-path integration of KV region
 hints remains CONCEPTUAL-HOOK. The benchmark uses `pread`/`pwrite`, not io_uring.
 Kernel-side KV region hint application is not claimed unless tested on a patched
 kernel with io_uring KV region registration.
+
+## Stage 18 Recompute-Aware Eviction Scheduler Status
+
+Stage 18 (`0028`) adds a conceptual recompute-aware eviction scheduler scaffold:
+
+- **Eviction class enum**: `enum kairo_eviction_class` with 7 classes
+  (NONE, RECOMPUTABLE_SHORT, RECOMPUTABLE_SESSION, EPHEMERAL_PREFETCH,
+  SESSION_CACHE, MODEL_CACHE, PERSISTENT_AVOID) in `include/linux/blk-mq.h`
+- **Eviction decision struct**: `struct kairo_eviction_decision` with
+  eviction_class, model_id, session_id, cache_pool_id, placement_group,
+  recompute_ok, ephemeral, persistent_avoid, discard_preferred,
+  writeback_required, score, reason_flags
+- **Conceptual helpers**: 5 helpers — `kairo_eviction_class_from_request`,
+  `kairo_eviction_score_request`, `kairo_should_prioritize_eviction`,
+  `kairo_should_defer_eviction`, `kairo_account_eviction_decision` — all
+  no-ops, not called from any dispatch path
+- **Eviction score policy**: Base scores by class (recomputable_short +100,
+  ephemeral_prefetch +90, recomputable_session +80, session_cache +50,
+  model_cache +20, persistent -1000); conceptual penalties for decode-hot
+  (-500) and recently accessed (-100)
+- **Sysfs counters**: 10 counters documented in `collect_kairo_counters.sh`
+  — no kobject registration wired
+- **User-space header**: `include/kairo_hints.h` with
+  `enum kairo_eviction_policy_mode` and `kairo_eviction_policy_name()` helper
+- **Benchmark flags**: `--eviction-policy none|recompute-aware|lifetime|mixed`,
+  `--eviction-pressure N` with output fields `eviction_policy`,
+  `eviction_recompute_ok`, `eviction_lifetime`, `eviction_score_model`,
+  `eviction_pressure`
+- **Experiment harness**: `run_stage18_recompute_eviction_experiment.sh` with
+  six canonical cases under `results/stage18/<timestamp>/`
+- **Summary parser**: `parse_stage18_recompute_eviction_summary.py` with CSV
+  and pretty-printed output; 11 eviction counter delta fields
+
+Stage 18 is **not** foundation-integrated, **not** LKML-ready, and **not**
+boot-validated.  No dispatch path calls the eviction helpers.  Sysfs eviction
+counters have no kobject registration.  Decode-latency feedback to eviction
+policy is documented but not wired.  Per-request access tracking does not
+exist.  Kernel-side eviction scoring is not claimed unless tested on a
+patched kernel with eviction counter collection.

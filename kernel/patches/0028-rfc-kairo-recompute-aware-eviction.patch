@@ -1,0 +1,498 @@
+From: Kairo Authors <kairo@research>
+Date: Wed Jun 24 19:00:00 2026 +0000
+Subject: [RFC/POC] 0028: recompute-aware eviction scheduler scaffold
+
+RFC/POC — Not for LKML submission.
+
+Add a conceptual eviction-class model and eviction-scoring scaffold that
+prioritises eviction of recomputable, short-lived cache data over
+non-recomputable, model-local, or persistent data.
+
+AI KV-cache regions have distinct recompute costs and lifetime classes.
+A generic block-layer eviction policy should prefer to evict:
+
+  1. recomputable short-lived data  (cheapest to reconstruct)
+  2. ephemeral prefetch cache       (speculative, low cost)
+  3. recomputable session cache     (moderate cost)
+  4. ordinary session cache         (session-scoped)
+  5. model-local cache              (expensive to reconstruct)
+  6. persistent / durable data      (never evict unless forced)
+
+This patch adds:
+
+  enum kairo_eviction_class
+    KAIRO_EVICT_NONE
+    KAIRO_EVICT_RECOMPUTABLE_SHORT
+    KAIRO_EVICT_RECOMPUTABLE_SESSION
+    KAIRO_EVICT_EPHEMERAL_PREFETCH
+    KAIRO_EVICT_SESSION_CACHE
+    KAIRO_EVICT_MODEL_CACHE
+    KAIRO_EVICT_PERSISTENT_AVOID
+
+  struct kairo_eviction_decision
+    eviction_class, model_id, session_id, cache_pool_id,
+    placement_group, recompute_ok, ephemeral, persistent_avoid,
+    discard_preferred, writeback_required, score, reason_flags
+
+Conceptual helpers:
+
+  kairo_eviction_class_from_request(struct request *rq)
+  kairo_eviction_score_request(struct request *rq)
+  kairo_should_prioritize_eviction(struct request *rq)
+  kairo_should_defer_eviction(struct request *rq)
+  kairo_account_eviction_decision(
+      struct request *rq,
+      const struct kairo_eviction_decision *decision)
+
+Eviction score policy (higher = safer eviction candidate):
+
+   recomputable short-lived cache       +100
+   ephemeral prefetch cache             +90
+   recomputable session cache           +80
+   ordinary session cache               +50
+   model-local cache                    +20
+   persistent / durable data            -1000
+   decode-hot data                      -500
+   recently accessed data               -100
+
+All helpers are static inline __maybe_unused no-ops in this patch.
+No dispatch path calls them.
+
+Sysfs counters (defined but not wired to any kobject):
+
+   kairo_eviction_decisions
+   kairo_eviction_recomputable_short
+   kairo_eviction_recomputable_session
+   kairo_eviction_ephemeral_prefetch
+   kairo_eviction_session_cache
+   kairo_eviction_model_cache
+   kairo_eviction_persistent_avoided
+   kairo_eviction_decode_hot_deferred
+   kairo_eviction_discard_preferred
+   kairo_eviction_writeback_required
+
+CONCEPTUAL-HOOK: No dispatch-path integration, no sysfs registration,
+no runtime eviction decisions.  The eviction scoring and class model
+are defined for RFC review and benchmark-driven policy exploration.
+
+LINUX-6.8-CHECK:
+  block/blk-mq.c:          blk_mq_rq_ctx_init, blk_mq_dispatch_rq
+  block/blk-core.c:        generic_make_request
+  include/linux/blk-mq.h:  struct request (no kairo_hints field)
+  mm/page-writeback.c:     writeback vs discard decision path
+
+Signed-off-by: Kairo Authors <kairo@research>
+---
+ include/linux/blk-mq.h | 243 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ block/blk-mq.c         |  73 +++++++++++++++
+ 2 files changed, 314 insertions(+), 2 deletions(-)
+
+diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
+index e9f0a1b..c3d4e5f 100755
+--- a/include/linux/blk-mq.h
++++ b/include/linux/blk-mq.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 */
+ /*
+- * Copyright (C) 2024 Kairo Authors
++ * Copyright (C) 2024-2026 Kairo Authors
+  *
+  * This is experimental RFC/POC code. Not for LKML submission.
+  */
+@@ -25,6 +25,247 @@
+ #include <linux/sbitmap.h>
+
+ /*
++ * Kairo eviction class model
++ *
++ * Defines the relative priority of cache data for eviction.  Higher
++ * eviction-class values indicate data that is safer and cheaper to
++ * evict (i.e. recomputable short-lived is the best eviction target;
++ * persistent data should almost never be evicted).
++ *
++ * CONCEPTUAL-HOOK: These classes are defined but no eviction path
++ * consumes them.  They are intended for RFC review and benchmark
++ * modeling.
++ */
++enum kairo_eviction_class {
++	/* Invalid / not yet classified */
++	KAIRO_EVICT_NONE = 0,
++	/*
++	 * Recomputable short-lived cache: cheapest to reconstruct.
++	 * e.g. ephemeral KV-cache blocks that can be regenerated from
++	 * a small amount of compute.
++	 */
++	KAIRO_EVICT_RECOMPUTABLE_SHORT,
++	/*
++	 * Recomputable session-scoped cache: reconstructable but tied
++	 * to a session's lifetime.
++	 */
++	KAIRO_EVICT_RECOMPUTABLE_SESSION,
++	/*
++	 * Ephemeral prefetch cache: speculative data that has no
++	 * durability requirement and can be dropped silently.
++	 */
++	KAIRO_EVICT_EPHEMERAL_PREFETCH,
++	/*
++	 * Session-scoped cache: non-recomputable, tied to session.
++	 * Eviction causes session-level recompute.
++	 */
++	KAIRO_EVICT_SESSION_CACHE,
++	/*
++	 * Model-local cache: expensive to reconstruct, shared across
++	 * sessions of the same model.
++	 */
++	KAIRO_EVICT_MODEL_CACHE,
++	/*
++	 * Persistent / durable data: should not be evicted unless
++	 * there is no other option (starvation escape).
++	 */
++	KAIRO_EVICT_PERSISTENT_AVOID,
++};
++
++/*
++ * struct kairo_eviction_decision
++ *
++ * Captures the eviction-class, scoring metadata, and policy flags
++ * for a single request or cache region.  Used by the conceptual
++ * eviction helpers to guide eviction priority.
++ */
++struct kairo_eviction_decision {
++	enum kairo_eviction_class eviction_class;
++	u32 model_id;
++	u32 session_id;
++	u32 cache_pool_id;
++	u32 placement_group;
++
++	bool recompute_ok;
++	bool ephemeral;
++	bool persistent_avoid;
++	bool discard_preferred;
++	bool writeback_required;
++
++	u64 score;
++	u64 reason_flags;
++};
++
++/* Eviction reason flags (kairo_eviction_decision.reason_flags) */
++#define KAIRO_EVICT_REASON_RECOMPUTE_OK	(1ULL << 0)
++#define KAIRO_EVICT_REASON_SHORT_LIFETIME	(1ULL << 1)
++#define KAIRO_EVICT_REASON_SESSION_SCOPED	(1ULL << 2)
++#define KAIRO_EVICT_REASON_MODEL_SCOPED		(1ULL << 3)
++#define KAIRO_EVICT_REASON_EPHEMERAL		(1ULL << 4)
++#define KAIRO_EVICT_REASON_PERSISTENT		(1ULL << 5)
++#define KAIRO_EVICT_REASON_DECODE_HOT		(1ULL << 6)
++#define KAIRO_EVICT_REASON_RECENTLY_ACCESSED	(1ULL << 7)
++#define KAIRO_EVICT_REASON_STARVATION_ESCAPE	(1ULL << 8)
++#define KAIRO_EVICT_REASON_WRITEBACK_REQUIRED	(1ULL << 9)
++
++/*
++ * Eviction score policy
++ *
++ * Higher score = safer / better eviction candidate.
++ *
++ * These scores are RFC/POC values for benchmark modeling.  Real
++ * production tuning would require workload-specific measurement.
++ */
++#define KAIRO_EVICT_SCORE_RECOMPUTABLE_SHORT	100ULL
++#define KAIRO_EVICT_SCORE_EPHEMERAL_PREFETCH	90ULL
++#define KAIRO_EVICT_SCORE_RECOMPUTABLE_SESSION	80ULL
++#define KAIRO_EVICT_SCORE_SESSION_CACHE		50ULL
++#define KAIRO_EVICT_SCORE_MODEL_CACHE		20ULL
++#define KAIRO_EVICT_SCORE_PERSISTENT_PENALTY	1000ULL
++#define KAIRO_EVICT_SCORE_DECODE_HOT_PENALTY	500ULL
++#define KAIRO_EVICT_SCORE_RECENT_PENALTY	100ULL
++
++/*
++ * Determine the eviction class for a request based on its Kairo
++ * hint metadata (semantic mode, lifetime class, recompute flag).
++ *
++ * CONCEPTUAL-HOOK: Reads from rq->kairo_hints which is not present
++ * in upstream Linux 6.8 (requires Kairo patch 0002).
++ *
++ * Returns KAIRO_EVICT_NONE if the request does not carry Kairo
++ * hints or cannot be classified.
++ */
++static inline enum kairo_eviction_class __maybe_unused
++kairo_eviction_class_from_request(struct request *rq)
++{
++	/*
++	 * LINUX-6.8-CHECK: rq does not have a kairo_hints field.
++	 * When it does, the logic would be:
++	 *
++	 * if (rq->kairo_hints.recompute_ok &&
++	 *     rq->kairo_hints.lifetime_class == KAIRO_LIFE_SHORT)
++	 *     return KAIRO_EVICT_RECOMPUTABLE_SHORT;
++	 * if (rq->kairo_hints.recompute_ok &&
++	 *     rq->kairo_hints.lifetime_class == KAIRO_LIFE_SESSION)
++	 *     return KAIRO_EVICT_RECOMPUTABLE_SESSION;
++	 * if (rq->kairo_hints.semantic_mode == KAIRO_SEMANTIC_EPHEMERAL)
++	 *     return KAIRO_EVICT_EPHEMERAL_PREFETCH;
++	 * if (rq->kairo_hints.lifetime_class == KAIRO_LIFE_SESSION)
++	 *     return KAIRO_EVICT_SESSION_CACHE;
++	 * if (rq->kairo_hints.lifetime_class == KAIRO_LIFE_MODEL)
++	 *     return KAIRO_EVICT_MODEL_CACHE;
++	 * if (rq->kairo_hints.lifetime_class == KAIRO_LIFE_PERSISTENT)
++	 *     return KAIRO_EVICT_PERSISTENT_AVOID;
++	 */
++	(void)rq;
++	return KAIRO_EVICT_NONE;
++}
++
++/*
++ * Compute an eviction score for a request.
++ *
++ * The score reflects how safe it is to evict the data backing this
++ * request.  Higher scores indicate cheaper / safer eviction targets.
++ *
++ * The base score is determined by the eviction class.  Additional
++ * modifiers (decode-hot penalty, recent-access penalty) would be
++ * applied when a per-request access-tracking mechanism is available.
++ *
++ * CONCEPTUAL-HOOK: Currently uses only the eviction class.  Does not
++ * access real access-tracking or latency data.
++ */
++static inline u64 __maybe_unused
++kairo_eviction_score_request(struct request *rq)
++{
++	enum kairo_eviction_class ec;
++	u64 score = 0;
++
++	ec = kairo_eviction_class_from_request(rq);
++
++	switch (ec) {
++	case KAIRO_EVICT_RECOMPUTABLE_SHORT:
++		score = KAIRO_EVICT_SCORE_RECOMPUTABLE_SHORT;
++		break;
++	case KAIRO_EVICT_RECOMPUTABLE_SESSION:
++		score = KAIRO_EVICT_SCORE_RECOMPUTABLE_SESSION;
++		break;
++	case KAIRO_EVICT_EPHEMERAL_PREFETCH:
++		score = KAIRO_EVICT_SCORE_EPHEMERAL_PREFETCH;
++		break;
++	case KAIRO_EVICT_SESSION_CACHE:
++		score = KAIRO_EVICT_SCORE_SESSION_CACHE;
++		break;
++	case KAIRO_EVICT_MODEL_CACHE:
++		score = KAIRO_EVICT_SCORE_MODEL_CACHE;
++		break;
++	case KAIRO_EVICT_PERSISTENT_AVOID:
++		score = 0;
++		break;
++	case KAIRO_EVICT_NONE:
++	default:
++		score = 0;
++		break;
++	}
++
++	/*
++	 * CONCEPTUAL-HOOK: Additional modifiers when access tracking
++	 * is available:
++	 *
++	 * if (kairo_request_decode_hot(rq))
++	 *     score -= KAIRO_EVICT_SCORE_DECODE_HOT_PENALTY;
++	 * if (kairo_request_recently_accessed(rq))
++	 *     score -= KAIRO_EVICT_SCORE_RECENT_PENALTY;
++	 *
++	 * LINUX-6.8-CHECK: No per-request access tracking in Kairo.
++	 */
++
++	return score;
++}
++
++/*
++ * Returns true if this request's backing data is a safe eviction
++ * candidate (score above model-cache threshold).
++ *
++ * CONCEPTUAL-HOOK: Eviction path does not call this function.
++ */
++static inline bool __maybe_unused
++kairo_should_prioritize_eviction(struct request *rq)
++{
++	return kairo_eviction_score_request(rq) >=
++		KAIRO_EVICT_SCORE_RECOMPUTABLE_SESSION;
++}
++
++/*
++ * Returns true if this request's backing data should NOT be evicted
++ * under normal circumstances (i.e. it is persistent, decode-hot, or
++ * recently accessed).
++ *
++ * CONCEPTUAL-HOOK: Eviction path does not call this function.
++ */
++static inline bool __maybe_unused
++kairo_should_defer_eviction(struct request *rq)
++{
++	enum kairo_eviction_class ec;
++	u64 score;
++
++	ec = kairo_eviction_class_from_request(rq);
++	if (ec == KAIRO_EVICT_PERSISTENT_AVOID)
++		return true;
++
++	score = kairo_eviction_score_request(rq);
++
++	/*
++	 * CONCEPTUAL-HOOK: Additional deferral conditions:
++	 *
++	 * if (kairo_request_decode_hot(rq))
++	 *     return true;
++	 * if (score < KAIRO_EVICT_SCORE_SESSION_CACHE)
++	 *     return false;  // safe to evict
++	 */
++
++	/* Default: eviction is deferred for model-cache and above */
++	return score >= KAIRO_EVICT_SCORE_MODEL_CACHE;
++}
++
++/*
++ * kairo_account_eviction_decision
++ *
++ * Record an eviction decision for sysfs counter accounting.
++ *
++ * CONCEPTUAL-HOOK: Sysfs counter registration is not wired.
++ * This function is a no-op until the eviction counter kobject
++ * is registered.
++ */
++static inline void __maybe_unused
++kairo_account_eviction_decision(struct request *rq,
++				const struct kairo_eviction_decision *decision)
++{
++	/*
++	 * LINUX-6.8-CHECK: No sysfs kobject for Kairo eviction
++	 * counters in upstream 6.8.
++	 *
++	 * When wired:
++	 *
++	 * switch (decision->eviction_class) {
++	 * case KAIRO_EVICT_RECOMPUTABLE_SHORT:
++	 *     this_cpu_inc(kairo_eviction_recomputable_short);
++	 *     break;
++	 * case KAIRO_EVICT_RECOMPUTABLE_SESSION:
++	 *     this_cpu_inc(kairo_eviction_recomputable_session);
++	 *     break;
++	 * case KAIRO_EVICT_EPHEMERAL_PREFETCH:
++	 *     this_cpu_inc(kairo_eviction_ephemeral_prefetch);
++	 *     break;
++	 * case KAIRO_EVICT_SESSION_CACHE:
++	 *     this_cpu_inc(kairo_eviction_session_cache);
++	 *     break;
++	 * case KAIRO_EVICT_MODEL_CACHE:
++	 *     this_cpu_inc(kairo_eviction_model_cache);
++	 *     break;
++	 * case KAIRO_EVICT_PERSISTENT_AVOID:
++	 *     this_cpu_inc(kairo_eviction_persistent_avoided);
++	 *     break;
++	 * default:
++	 *     break;
++	 * }
++	 *
++	 * if (decision->reason_flags & KAIRO_EVICT_REASON_DECODE_HOT)
++	 *     this_cpu_inc(kairo_eviction_decode_hot_deferred);
++	 * if (decision->discard_preferred)
++	 *     this_cpu_inc(kairo_eviction_discard_preferred);
++	 * if (decision->writeback_required)
++	 *     this_cpu_inc(kairo_eviction_writeback_required);
++	 *
++	 * this_cpu_inc(kairo_eviction_decisions);
++	 */
++	(void)rq;
++	(void)decision;
++}
++
++/*
+  * Kairo KV region hint types
+  *
+  * Identifies the type of KV-cache region that a registered buffer or
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index c4d5e6f..f7a8b9c 100755
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -25,6 +25,77 @@
+ #include "blk-mq.h"
+
+ /*
++ * Kairo eviction scheduler integration points
++ *
++ * This section documents the conceptual hook sites where eviction
++ * decisions would be integrated into the block-layer dispatch and
++ * completion paths.
++ *
++ * CONCEPTUAL-HOOK: None of these call sites are wired.  The
++ * eviction-class model and scoring helpers are defined for RFC
++ * review and benchmark modeling only.
++ *
++ * Hook candidates (LINUX-6.8-CHECK):
++ *
++ *   block/blk-mq.c
++ *     - blk_mq_dispatch_rq():  Apply eviction score, skip or
++ *       defer eviction requests for persistent/decode-hot data
++ *     - blk_mq_rq_ctx_init():  Classify request by eviction class
++ *
++ *   block/blk-core.c
++ *     - generic_make_request():  Optionally account eviction
++ *       decisions before bio submission
++ *
++ *   mm/page-writeback.c
++ *     - writeback vs discard decision: for evict-class requests,
++ *       discard is preferred when writeback is not required
++ *
++ * Sysfs counters (documented):
++ *
++ *   kairo_eviction_decisions
++ *   kairo_eviction_recomputable_short
++ *   kairo_eviction_recomputable_session
++ *   kairo_eviction_ephemeral_prefetch
++ *   kairo_eviction_session_cache
++ *   kairo_eviction_model_cache
++ *   kairo_eviction_persistent_avoided
++ *   kairo_eviction_decode_hot_deferred
++ *   kairo_eviction_discard_preferred
++ *   kairo_eviction_writeback_required
++ */
++
++#if 0
++/* Example conceptual call site in blk_mq_dispatch_rq():
++ *
++ * struct kairo_eviction_decision decision;
++ *
++ * if (rq->kairo_hints.io_class == KAIRO_CLASS_EVICT) {
++ *     decision.eviction_class =
++ *         kairo_eviction_class_from_request(rq);
++ *     decision.score =
++ *         kairo_eviction_score_request(rq);
++ *
++ *     if (kairo_should_defer_eviction(rq)) {
++ *         // Defer eviction; reinsert request for later
++ *         blk_mq_requeue_request(rq, false);
++ *         return BLK_STS_RESOURCE;
++ *     }
++ *
++ *     kairo_account_eviction_decision(rq, &decision);
++ * }
++ */
++
++/* Example conceptual call site in blk_mq_rq_ctx_init():
++ *
++ * if (rq->kairo_hints.io_class == KAIRO_CLASS_EVICT) {
++ *     rq->kairo_eviction_class =
++ *         kairo_eviction_class_from_request(rq);
++ *     rq->kairo_eviction_score =
++ *         kairo_eviction_score_request(rq);
++ * }
++ */
++#endif
++
++/*
+  * For fully allocated queues, the queue dying flag is set.  For
+  * partially allocated queues, we fail at the allocation point.
+  */
+@@ -737,4 +808,6 @@ static void blk_mq_rq_ctx_init(struct blk_mq_tags *tags,
+ 	rq->part = NULL;
+ 	seqcount_init(&rq->gstate_seq);
+ 	u64_stats_init(&rq->kairo_stats.syncp);
++	/* CONCEPTUAL-HOOK: kairo_eviction_class_from_request(rq)
++	 * would be called here when kairo_hints is available. */
+ }
+-- 
+2.45.1

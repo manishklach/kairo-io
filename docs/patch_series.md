@@ -38,6 +38,7 @@ local apply/build target for Stage 1 and Stage 2 validation.
 | `0025` | fairness accounting sysfs | `block/mq-deadline.c` | Wires Stage 12 fairness counters into sysfs boilerplate; 5 tunables with bounds-checked show/store; 7 counters with read-only show; counter increment wiring in fairness hooks; LINUX-6.8-CHECK annotations |
 | `0026` | blk-cgroup AI I/O controller | `block/blk-kairo-blkcg.c`, `include/linux/blk-cgroup.h` | blk-cgroup policy scaffold for AI inference containers; `enum kairo_blkg_policy_class`; `struct kairo_blkg_policy` with per-class weights; `struct kairo_blkg_stats`; 5 conceptual hooks; blkcg audit script; cgroup interface files documented but implementation deferred |
 | `0027` | io_uring KV region hints | `include/linux/blk-mq.h`, `include/uapi/linux/io_uring.h`, `block/blk-mq.c` | io_uring KV region hint scaffold for AI runtime memory regions; `enum kairo_kv_region_type`; `struct kairo_kv_region_hint`; `IORING_REGISTER_KAIRO_KV_REGION` (42) and `IORING_REGISTER_KAIRO_KV_REGIONS` (43) opcodes; 2 conceptual hooks; io_uring audit script; user-space region hint header |
+| `0028` | Recompute-aware eviction scheduler | `include/linux/blk-mq.h`, `block/blk-mq.c` | Eviction-class model for AI KV-cache data; `enum kairo_eviction_class`; `struct kairo_eviction_decision`; 5 conceptual helpers (class from request, score, should_prioritize, should_defer, account decision); 10 sysfs eviction counters; eviction score policy with recompute/lifetime/decode-hot penalties |
 
 ## Design Themes
 

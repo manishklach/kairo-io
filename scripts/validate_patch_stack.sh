@@ -678,6 +678,52 @@ grep -qF "kv-region-type" "$REPO_ROOT/bench/kairo_bench.c" || \
 grep -qF "stage17_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
   fail "Stage 17: run_wsl_validation_snapshot.sh missing stage17_dryrun"
 
+# Stage 18: verify recompute-aware eviction scheduler scaffold
+stage18_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 18: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage18_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 18: missing file: $1"
+}
+
+P28="$PATCH_DIR/0028-rfc-kairo-recompute-aware-eviction.patch"
+DOC18="$REPO_ROOT/docs/stage18_recompute_aware_eviction.md"
+R18SE="$REPO_ROOT/scripts/run_stage18_recompute_eviction_experiment.sh"
+P18SP="$REPO_ROOT/scripts/parse_stage18_recompute_eviction_summary.py"
+
+stage18_file_exists "$P28"
+stage18_file_exists "$DOC18"
+stage18_file_exists "$R18SE"
+stage18_file_exists "$P18SP"
+stage18_has_pattern "$P28" "enum kairo_eviction_class"
+stage18_has_pattern "$P28" "struct kairo_eviction_decision"
+stage18_has_pattern "$P28" "kairo_eviction_score_request"
+stage18_has_pattern "$P28" "kairo_should_prioritize_eviction"
+stage18_has_pattern "$P28" "kairo_should_defer_eviction"
+stage18_has_pattern "$DOC18" "Recompute-Aware"
+stage18_has_pattern "$R18SE" "results/stage18"
+stage18_has_pattern "$R18SE" "eviction_policy"
+stage18_has_pattern "$P18SP" "--csv"
+stage18_has_pattern "$P18SP" "--pretty"
+
+# Verify collect_kairo_counters.sh has Stage 18 counters
+grep -qF "kairo_eviction_decisions" "$REPO_ROOT/scripts/collect_kairo_counters.sh" || \
+  fail "Stage 18: collect_kairo_counters.sh missing kairo_eviction_decisions"
+
+# Verify bench/kairo_bench.c supports --eviction-policy
+grep -qF "eviction-policy" "$REPO_ROOT/bench/kairo_bench.c" || \
+  fail "Stage 18: kairo_bench.c missing --eviction-policy"
+
+# Verify include/kairo_hints.h has eviction policy enum
+grep -qF "enum kairo_eviction_policy_mode" "$REPO_ROOT/include/kairo_hints.h" || \
+  fail "Stage 18: kairo_hints.h missing enum kairo_eviction_policy_mode"
+
+# Verify WSL validation includes stage18_dryrun
+grep -qF "stage18_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
+  fail "Stage 18: run_wsl_validation_snapshot.sh missing stage18_dryrun"
+
 # Stage 9: verify WSL validation files
 [[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
 [[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"

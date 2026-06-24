@@ -489,3 +489,37 @@ framework:
   - io_uring worker in benchmark (uses `pread`/`pwrite`)
   - real registered-buffer tagging
   - region-level override of per-request hints
+
+## Stage 18
+
+- Broad RFC/POC patches involved: `0028`
+- Docs: `docs/stage18_recompute_aware_eviction.md`
+- User-space header: `include/kairo_hints.h` (eviction policy enum, name helper)
+- Scripts:
+  - `scripts/run_stage18_recompute_eviction_experiment.sh`
+  - `scripts/parse_stage18_recompute_eviction_summary.py`
+- What should compile:
+  - `enum kairo_eviction_class` with 7 classes in `include/linux/blk-mq.h`
+  - `struct kairo_eviction_decision` with score, reason_flags, metadata
+  - conceptual helpers: `kairo_eviction_class_from_request`,
+    `kairo_eviction_score_request`, `kairo_should_prioritize_eviction`,
+    `kairo_should_defer_eviction`, `kairo_account_eviction_decision`
+  - eviction score policy (10 counters, 8 score constants)
+  - User-space `enum kairo_eviction_policy_mode` and name helper
+  - Benchmark `--eviction-policy`, `--eviction-pressure` options
+- What should be measurable:
+  - conceptual recompute-aware eviction model
+  - six canonical experiment cases covering ordinary, recompute-short,
+    recompute-session, model-cache-avoid, decode-pressure-defer,
+    and mixed-eviction-pressure scenarios
+  - structured output under `results/stage18/<timestamp>/`
+  - parseable summary logs with CSV and pretty-printed tables
+  - benchmark output fields: `eviction_policy`, `eviction_recompute_ok`,
+    `eviction_lifetime`, `eviction_score_model`, `eviction_pressure`
+- What is still RFC-only:
+  - dispatch-path integration of eviction scoring (CONCEPTUAL-HOOK)
+  - sysfs counter registration (no kobject for eviction counters)
+  - decode-latency feedback to eviction policy
+  - per-request access tracking for recency/decode-hot penalties
+  - fairness-aware eviction (noisy session vs well-behaved session)
+  - real starvation-escape mechanism for eviction

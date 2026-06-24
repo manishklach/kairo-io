@@ -142,6 +142,31 @@ static inline const char *kairo_backend_mode_name(enum kairo_backend_mode mode)
 }
 
 /*
+ * Stage 18: Eviction policy modes (benchmark-only modeling)
+ */
+enum kairo_eviction_policy_mode {
+    KAIRO_EVICT_POLICY_NONE = 0,
+    KAIRO_EVICT_POLICY_RECOMPUTE_AWARE,
+    KAIRO_EVICT_POLICY_LIFETIME,
+    KAIRO_EVICT_POLICY_MIXED,
+};
+
+static inline const char *kairo_eviction_policy_name(enum kairo_eviction_policy_mode mode)
+{
+    switch (mode) {
+    case KAIRO_EVICT_POLICY_RECOMPUTE_AWARE:
+        return "recompute-aware";
+    case KAIRO_EVICT_POLICY_LIFETIME:
+        return "lifetime";
+    case KAIRO_EVICT_POLICY_MIXED:
+        return "mixed";
+    case KAIRO_EVICT_POLICY_NONE:
+    default:
+        return "none";
+    }
+}
+
+/*
  * Stage 17: io_uring KV region hint types (benchmark-only modeling)
  *
  * These mirror the kernel-side enum kairo_kv_region_type for use by

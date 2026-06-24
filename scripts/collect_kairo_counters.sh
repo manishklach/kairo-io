@@ -156,6 +156,18 @@ counter_names=(
   kairo_blkg_throttled_prefetches
   kairo_blkg_demoted_writes
   kairo_blkg_latency_violations
+
+  # Stage 18: recompute-aware eviction scheduler counters (conceptual)
+  kairo_eviction_decisions
+  kairo_eviction_recomputable_short
+  kairo_eviction_recomputable_session
+  kairo_eviction_ephemeral_prefetch
+  kairo_eviction_session_cache
+  kairo_eviction_model_cache
+  kairo_eviction_persistent_avoided
+  kairo_eviction_decode_hot_deferred
+  kairo_eviction_discard_preferred
+  kairo_eviction_writeback_required
 )
 
 for name in "${counter_names[@]}"; do
