@@ -167,6 +167,28 @@ static inline const char *kairo_eviction_policy_name(enum kairo_eviction_policy_
 }
 
 /*
+ * Stage 20: KV admission control modes (benchmark-only modeling)
+ */
+enum kairo_admission_mode {
+    KAIRO_ADMIT_MODE_NONE = 0,
+    KAIRO_ADMIT_MODE_MOCK,
+    KAIRO_ADMIT_MODE_POLICY,
+};
+
+static inline const char *kairo_admission_mode_name(enum kairo_admission_mode mode)
+{
+    switch (mode) {
+    case KAIRO_ADMIT_MODE_MOCK:
+        return "mock";
+    case KAIRO_ADMIT_MODE_POLICY:
+        return "policy";
+    case KAIRO_ADMIT_MODE_NONE:
+    default:
+        return "none";
+    }
+}
+
+/*
  * Stage 19: KV residency heatmap modes (benchmark-only modeling)
  */
 enum kairo_heatmap_mode {

@@ -1,6 +1,6 @@
 # Kairo Validation Snapshot
 
-Date: 20260624-095035
+Date: 20260624-101829
 Environment: WSL
 Kernel: 6.6.87.2-microsoft-standard-WSL2+
 WSL: true
@@ -23,6 +23,7 @@ WSL: true
 | stage17_dryrun | pass |
 | stage18_dryrun | pass |
 | stage19_dryrun | pass |
+| stage20_dryrun | pass |
 | user_bench_baseline | skipped |
 | user_bench_mixed | skipped |
 
@@ -56,9 +57,10 @@ WSL: true
 - stage17_dryrun.log
 - stage18_dryrun.log
 - stage19_dryrun.log
+- stage20_dryrun.log
 - user_bench_baseline.log
 - user_bench_mixed.log
 
-Results directory: `results/validation/20260624-095035`
+Results directory: `results/validation/20260624-101829`
 
 Notes: WSL validation only; no custom kernel boot, no Kairo sysfs counters, no physical NVMe placement validation.

@@ -771,6 +771,52 @@ grep -qF "enum kairo_heatmap_mode" "$REPO_ROOT/include/kairo_hints.h" || \
 grep -qF "stage19_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
   fail "Stage 19: run_wsl_validation_snapshot.sh missing stage19_dryrun"
 
+# Stage 20: verify flash-backed KV admission control scaffold
+stage20_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 20: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage20_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 20: missing file: $1"
+}
+
+P30="$PATCH_DIR/0030-rfc-kairo-kv-admission-control.patch"
+DOC20="$REPO_ROOT/docs/stage20_kv_admission_control.md"
+R20SE="$REPO_ROOT/scripts/run_stage20_kv_admission_experiment.sh"
+P20SP="$REPO_ROOT/scripts/parse_stage20_kv_admission_summary.py"
+
+stage20_file_exists "$P30"
+stage20_file_exists "$DOC20"
+stage20_file_exists "$R20SE"
+stage20_file_exists "$P20SP"
+stage20_has_pattern "$P30" "enum kairo_admission_decision"
+stage20_has_pattern "$P30" "struct kairo_admission_policy"
+stage20_has_pattern "$P30" "struct kairo_admission_request"
+stage20_has_pattern "$P30" "kairo_admission_decide"
+stage20_has_pattern "$P30" "kairo_admission_account"
+stage20_has_pattern "$DOC20" "KV Admission Control"
+stage20_has_pattern "$R20SE" "results/stage20"
+stage20_has_pattern "$R20SE" "admission_mode"
+stage20_has_pattern "$P20SP" "--csv"
+stage20_has_pattern "$P20SP" "--pretty"
+
+# Verify collect_kairo_counters.sh has Stage 20 counters
+grep -qF "kairo_admission_requests" "$REPO_ROOT/scripts/collect_kairo_counters.sh" || \
+  fail "Stage 20: collect_kairo_counters.sh missing kairo_admission_requests"
+
+# Verify bench/kairo_bench.c supports --admission-mode
+grep -qF "admission-mode" "$REPO_ROOT/bench/kairo_bench.c" || \
+  fail "Stage 20: kairo_bench.c missing --admission-mode"
+
+# Verify include/kairo_hints.h has admission mode enum
+grep -qF "enum kairo_admission_mode" "$REPO_ROOT/include/kairo_hints.h" || \
+  fail "Stage 20: kairo_hints.h missing enum kairo_admission_mode"
+
+# Verify WSL validation includes stage20_dryrun
+grep -qF "stage20_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
+  fail "Stage 20: run_wsl_validation_snapshot.sh missing stage20_dryrun"
+
 # Stage 9: verify WSL validation files
 [[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
 [[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"

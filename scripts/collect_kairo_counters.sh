@@ -179,6 +179,18 @@ counter_names=(
   kairo_kv_heatmap_cold_regions
   kairo_kv_heatmap_evictable_regions
   kairo_kv_heatmap_protected_regions
+
+  # Stage 20: KV admission control counters (conceptual)
+  kairo_admission_requests
+  kairo_admission_accepts
+  kairo_admission_rejects
+  kairo_admission_reject_short_lived
+  kairo_admission_reject_recompute_cheap
+  kairo_admission_reject_cold
+  kairo_admission_reject_pressure
+  kairo_admission_accept_model_local
+  kairo_admission_accept_decode_hot
+  kairo_admission_accept_shared
 )
 
 for name in "${counter_names[@]}"; do

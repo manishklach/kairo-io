@@ -338,3 +338,41 @@ is not wired to any timer.  Integration with Stage 17 KV region hints,
 Stage 13/14 decode latency feedback, and Stage 12/15 fairness is
 conceptual only.  Kernel-side heatmap accounting is not claimed unless
 tested on a patched kernel with heatmap counter collection.
+
+## Stage 20 Flash-Backed KV Admission Control Status
+
+Stage 20 ( 030) adds a conceptual flash-backed KV admission control scaffold:
+
+- **Admission decision enum**: num kairo_admission_decision with 9 decisions
+  (UNKNOWN, ACCEPT, REJECT_SHORT_LIVED, REJECT_RECOMPUTE_CHEAP, REJECT_COLD,
+  REJECT_PRESSURE, ACCEPT_MODEL_LOCAL, ACCEPT_DECODE_HOT, ACCEPT_SHARED) in
+  include/linux/blk-mq.h`n- **Admission policy struct**: struct kairo_admission_policy with 8 fields
+  (enabled, min_expected_reuse, min_lifetime_ms, max_decode_p99_us,
+  flash_pressure_threshold, admit_model_local, admit_session_local,
+  reject_recompute_cheap, reject_under_decode_pressure)
+- **Admission request struct**: struct kairo_admission_request with 13 fields
+  (model_id, session_id, cache_pool_id, region_id, object_size_bytes,
+  expected_reuse_count, expected_lifetime_ms, recompute_cost_us,
+  recompute_ok, decode_hot, model_local, session_local, shared)
+- **Conceptual helpers**: 3 helpers — kairo_admission_decide,
+  kairo_admission_accepts, kairo_admission_account — all no-ops,
+  not called from any dispatch path
+- **Policy rules**: 7 priority-ordered conditions (RFC heuristic): pressure
+  reject, short-lived reject, recompute-cheap reject, model-local accept,
+  decode-hot accept, shared accept, cold reject, fallback accept
+- **Sysfs counters**: 10 counters documented in collect_kairo_counters.sh`n  — no kobject registration wired
+- **User-space header**: include/kairo_hints.h with
+  num kairo_admission_mode and kairo_admission_mode_name() helper
+- **Benchmark flags**: --admission-mode none|mock|policy, --expected-reuse N, --expected-lifetime-ms N, --recompute-cost-us N,
+  --flash-pressure N with output fields dmission_mode, xpected_reuse,
+  xpected_lifetime_ms, ecompute_cost_us, lash_pressure, dmission_decision`n- **Experiment harness**: un_stage20_kv_admission_experiment.sh with six
+  canonical cases under esults/stage20/<timestamp>/`n- **Summary parser**: parse_stage20_kv_admission_summary.py with CSV and
+  pretty-printed output; 10 admission counter delta fields
+
+Stage 20 is **not** foundation-integrated, **not** LKML-ready, and **not**
+boot-validated.  No dispatch path calls the admission helpers.  Sysfs admission
+counters have no kobject registration.  Decode-p99 feedback to admission policy
+is documented but not wired.  Per-cgroup admission budgets are not implemented.
+Runtime flash pressure measurement does not exist.  Kernel-side admission
+decisions are not claimed unless tested on a patched kernel with admission
+counter collection.

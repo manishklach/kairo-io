@@ -1,0 +1,426 @@
+From: Kairo Authors <kairo@research>
+Date: Wed Jun 24 21:00:00 2026 +0000
+Subject: [RFC/POC] 0030: flash-backed KV admission control scaffold
+
+RFC/POC — Not for LKML submission.
+
+Add a conceptual KV-cache admission control scaffold that decides
+whether a KV-cache object deserves flash-backed storage.  Not every
+KV object should consume SSD space — short-lived, cold, cheap-to-
+recompute, or low-priority data should be rejected before it ever
+reaches the flash tier.
+
+Admission policy sits at the boundary between the AI runtime's memory
+management and the kernel's storage stack.  It answers: "Should this
+object be stored on flash, or should the runtime keep it in memory /
+recompute it on demand?"
+
+This patch adds:
+
+  enum kairo_admission_decision
+    KAIRO_ADMIT_UNKNOWN
+    KAIRO_ADMIT_ACCEPT
+    KAIRO_ADMIT_REJECT_SHORT_LIVED
+    KAIRO_ADMIT_REJECT_RECOMPUTE_CHEAP
+    KAIRO_ADMIT_REJECT_COLD
+    KAIRO_ADMIT_REJECT_PRESSURE
+    KAIRO_ADMIT_ACCEPT_MODEL_LOCAL
+    KAIRO_ADMIT_ACCEPT_DECODE_HOT
+    KAIRO_ADMIT_ACCEPT_SHARED
+
+  struct kairo_admission_policy
+    enabled, min_expected_reuse, min_lifetime_ms,
+    max_decode_p99_us, flash_pressure_threshold,
+    admit_model_local, admit_session_local,
+    reject_recompute_cheap, reject_under_decode_pressure
+
+  struct kairo_admission_request
+    model_id, session_id, cache_pool_id, region_id,
+    object_size_bytes, expected_reuse_count,
+    expected_lifetime_ms, recompute_cost_us,
+    recompute_ok, decode_hot, model_local,
+    session_local, shared
+
+Conceptual helpers:
+
+  kairo_admission_decide(policy, req)
+  kairo_admission_accepts(decision)
+  kairo_admission_account(decision)
+
+Policy rules (RFC heuristic):
+
+  If decode p99 > target and object is recomputable:
+      KAIRO_ADMIT_REJECT_PRESSURE
+  If expected_lifetime_ms < min_lifetime_ms:
+      KAIRO_ADMIT_REJECT_SHORT_LIVED
+  If recompute_ok and recompute_cost_us is low:
+      KAIRO_ADMIT_REJECT_RECOMPUTE_CHEAP
+  If model_local and expected_reuse >= min_expected_reuse:
+      KAIRO_ADMIT_ACCEPT_MODEL_LOCAL
+  If decode_hot:
+      KAIRO_ADMIT_ACCEPT_DECODE_HOT
+  If shared:
+      KAIRO_ADMIT_ACCEPT_SHARED
+
+Sysfs counters (defined but not wired to any kobject):
+
+  kairo_admission_requests
+  kairo_admission_accepts
+  kairo_admission_rejects
+  kairo_admission_reject_short_lived
+  kairo_admission_reject_recompute_cheap
+  kairo_admission_reject_cold
+  kairo_admission_reject_pressure
+  kairo_admission_accept_model_local
+  kairo_admission_accept_decode_hot
+  kairo_admission_accept_shared
+
+CONCEPTUAL-HOOK: No dispatch-path integration, no sysfs registration,
+no runtime admission decisions.  The admission model is defined for
+RFC review and benchmark-driven policy exploration.
+
+LINUX-6.8-CHECK:
+  block/blk-mq.c:          blk_mq_rq_ctx_init
+  include/linux/blk-mq.h:  struct request (no kairo_hints field)
+
+Signed-off-by: Kairo Authors <kairo@research>
+---
+ include/linux/blk-mq.h | 241 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ block/blk-mq.c         |  57 ++++++++++++
+ 2 files changed, 296 insertions(+), 2 deletions(-)
+
+diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
+index g6h7i8j..p9q0r1s 100755
+--- a/include/linux/blk-mq.h
++++ b/include/linux/blk-mq.h
+@@ -25,6 +25,245 @@
+ #include <linux/sbitmap.h>
+
+ /*
++ * Kairo flash-backed KV admission control
++ *
++ * Decides whether a KV-cache object should be stored on flash-backed
++ * storage or rejected (kept in DRAM / recomputed).  Admission happens
++ * before eviction becomes necessary — if an object is not worth
++ * storing, it should never consume SSD space.
++ *
++ * CONCEPTUAL-HOOK: No dispatch path integrates the admission helpers.
++ * The structs and helpers are defined for RFC review and benchmark
++ * modeling.
++ */
++
++/*
++ * Admission decision results.
++ *
++ * ACCEPT_* variants indicate acceptance with a reason.
++ * REJECT_* variants indicate rejection with a reason.
++ */
++enum kairo_admission_decision {
++	KAIRO_ADMIT_UNKNOWN = 0,
++	KAIRO_ADMIT_ACCEPT,
++	KAIRO_ADMIT_REJECT_SHORT_LIVED,
++	KAIRO_ADMIT_REJECT_RECOMPUTE_CHEAP,
++	KAIRO_ADMIT_REJECT_COLD,
++	KAIRO_ADMIT_REJECT_PRESSURE,
++	KAIRO_ADMIT_ACCEPT_MODEL_LOCAL,
++	KAIRO_ADMIT_ACCEPT_DECODE_HOT,
++	KAIRO_ADMIT_ACCEPT_SHARED,
++};
++
++/*
++ * struct kairo_admission_policy
++ *
++ * Configuration parameters for the admission controller.
++ * Set by the AI runtime or system administrator via sysfs.
++ */
++struct kairo_admission_policy {
++	bool enabled;
++
++	u64 min_expected_reuse;
++	u64 min_lifetime_ms;
++	u64 max_decode_p99_us;
++	u64 flash_pressure_threshold;
++
++	bool admit_model_local;
++	bool admit_session_local;
++	bool reject_recompute_cheap;
++	bool reject_under_decode_pressure;
++};
++
++/*
++ * struct kairo_admission_request
++ *
++ * Metadata for a single KV-cache object admission decision.
++ * Populated by the AI runtime via KV region hints or per-I/O
++ * metadata.
++ */
++struct kairo_admission_request {
++	u32 model_id;
++	u32 session_id;
++	u32 cache_pool_id;
++	u32 region_id;
++
++	u64 object_size_bytes;
++	u64 expected_reuse_count;
++	u64 expected_lifetime_ms;
++	u64 recompute_cost_us;
++
++	bool recompute_ok;
++	bool decode_hot;
++	bool model_local;
++	bool session_local;
++	bool shared;
++};
++
++/*
++ * Admission policy rules (RFC heuristic)
++ *
++ * The decision logic is evaluated in priority order:
++ *
++ *   1. If decode pressure is high and object is recomputable:
++ *      REJECT_PRESSURE
++ *   2. If expected lifetime is below minimum:
++ *      REJECT_SHORT_LIVED
++ *   3. If recompute_ok and recompute cost is low:
++ *      REJECT_RECOMPUTE_CHEAP
++ *   4. If model_local and expected reuse meets threshold:
++ *      ACCEPT_MODEL_LOCAL
++ *   5. If decode_hot:
++ *      ACCEPT_DECODE_HOT
++ *   6. If shared across sessions:
++ *      ACCEPT_SHARED
++ *   7. Fallback: ACCEPT (admit if no reject reason found)
++ *
++ * These rules are RFC values.  Real production tuning would require
++ * workload-specific measurement.
++ */
++#define KAIRO_ADMIT_RECOMPUTE_CHEAP_THRESHOLD_US	100ULL
++#define KAIRO_ADMIT_DEFAULT_MIN_REUSE			2ULL
++#define KAIRO_ADMIT_DEFAULT_MIN_LIFETIME_MS		1000ULL
++#define KAIRO_ADMIT_DEFAULT_MAX_DECODE_P99_US		500ULL
++#define KAIRO_ADMIT_DEFAULT_FLASH_PRESSURE_THRESHOLD	80ULL
++
++/*
++ * kairo_admission_decide
++ *
++ * Evaluates an admission request against the policy and returns
++ * the decision.
++ *
++ * Returns KAIRO_ADMIT_ACCEPT if no reject reason applies and no
++ * specific accept reason is identified.
++ */
++static inline enum kairo_admission_decision __maybe_unused
++kairo_admission_decide(const struct kairo_admission_policy *policy,
++		       const struct kairo_admission_request *req)
++{
++	if (!policy || !policy->enabled)
++		return KAIRO_ADMIT_ACCEPT;
++
++	/*
++	 * CONCEPTUAL-HOOK: When decode p99 feedback is available
++	 * from Stage 13/14, check if pressure is above threshold.
++	 *
++	 * LINUX-6.8-CHECK: No decode p99 feedback mechanism exists
++	 * in upstream 6.8.
++	 */
++	if (policy->reject_under_decode_pressure && req->recompute_ok) {
++		/*
++		 * if (current_decode_p99_us > policy->max_decode_p99_us)
++		 *     return KAIRO_ADMIT_REJECT_PRESSURE;
++		 */
++	}
++
++	if (req->expected_lifetime_ms < policy->min_lifetime_ms)
++		return KAIRO_ADMIT_REJECT_SHORT_LIVED;
++
++	if (policy->reject_recompute_cheap &&
++	    req->recompute_ok &&
++	    req->recompute_cost_us < KAIRO_ADMIT_RECOMPUTE_CHEAP_THRESHOLD_US)
++		return KAIRO_ADMIT_REJECT_RECOMPUTE_CHEAP;
++
++	if (policy->admit_model_local &&
++	    req->model_local &&
++	    req->expected_reuse_count >= policy->min_expected_reuse)
++		return KAIRO_ADMIT_ACCEPT_MODEL_LOCAL;
++
++	if (req->decode_hot)
++		return KAIRO_ADMIT_ACCEPT_DECODE_HOT;
++
++	if (req->shared)
++		return KAIRO_ADMIT_ACCEPT_SHARED;
++
++	/*
++	 * Cold rejection: if expected reuse is 0 and object is not
++	 * model-local, decode-hot, or shared, reject as cold.
++	 */
++	if (req->expected_reuse_count == 0 && !req->model_local)
++		return KAIRO_ADMIT_REJECT_COLD;
++
++	return KAIRO_ADMIT_ACCEPT;
++}
++
++/*
++ * Returns true if the decision is an accept variant.
++ */
++static inline bool __maybe_unused
++kairo_admission_accepts(enum kairo_admission_decision decision)
++{
++	switch (decision) {
++	case KAIRO_ADMIT_ACCEPT:
++	case KAIRO_ADMIT_ACCEPT_MODEL_LOCAL:
++	case KAIRO_ADMIT_ACCEPT_DECODE_HOT:
++	case KAIRO_ADMIT_ACCEPT_SHARED:
++		return true;
++	case KAIRO_ADMIT_REJECT_SHORT_LIVED:
++	case KAIRO_ADMIT_REJECT_RECOMPUTE_CHEAP:
++	case KAIRO_ADMIT_REJECT_COLD:
++	case KAIRO_ADMIT_REJECT_PRESSURE:
++	case KAIRO_ADMIT_UNKNOWN:
++	default:
++		return false;
++	}
++}
++
++/*
++ * kairo_admission_account
++ *
++ * Record an admission decision for sysfs counter accounting.
++ *
++ * CONCEPTUAL-HOOK: Sysfs counter registration is not wired.
++ * This function is a no-op until the admission counter kobject
++ * is registered.
++ */
++static inline void __maybe_unused
++kairo_admission_account(enum kairo_admission_decision decision)
++{
++	/*
++	 * LINUX-6.8-CHECK: No sysfs kobject for Kairo admission
++	 * counters in upstream 6.8.
++	 *
++	 * When wired:
++	 *
++	 * this_cpu_inc(kairo_admission_requests);
++	 *
++	 * switch (decision) {
++	 * case KAIRO_ADMIT_ACCEPT:
++	 * case KAIRO_ADMIT_ACCEPT_MODEL_LOCAL:
++	 * case KAIRO_ADMIT_ACCEPT_DECODE_HOT:
++	 * case KAIRO_ADMIT_ACCEPT_SHARED:
++	 *     this_cpu_inc(kairo_admission_accepts);
++	 *     break;
++	 * default:
++	 *     break;
++	 * }
++	 *
++	 * switch (decision) {
++	 * case KAIRO_ADMIT_REJECT_SHORT_LIVED:
++	 *     this_cpu_inc(kairo_admission_reject_short_lived);
++	 *     this_cpu_inc(kairo_admission_rejects);
++	 *     break;
++	 * case KAIRO_ADMIT_REJECT_RECOMPUTE_CHEAP:
++	 *     this_cpu_inc(kairo_admission_reject_recompute_cheap);
++	 *     this_cpu_inc(kairo_admission_rejects);
++	 *     break;
++	 * case KAIRO_ADMIT_REJECT_COLD:
++	 *     this_cpu_inc(kairo_admission_reject_cold);
++	 *     this_cpu_inc(kairo_admission_rejects);
++	 *     break;
++	 * case KAIRO_ADMIT_REJECT_PRESSURE:
++	 *     this_cpu_inc(kairo_admission_reject_pressure);
++	 *     this_cpu_inc(kairo_admission_rejects);
++	 *     break;
++	 * case KAIRO_ADMIT_ACCEPT_MODEL_LOCAL:
++	 *     this_cpu_inc(kairo_admission_accept_model_local);
++	 *     break;
++	 * case KAIRO_ADMIT_ACCEPT_DECODE_HOT:
++	 *     this_cpu_inc(kairo_admission_accept_decode_hot);
++	 *     break;
++	 * case KAIRO_ADMIT_ACCEPT_SHARED:
++	 *     this_cpu_inc(kairo_admission_accept_shared);
++	 *     break;
++	 * default:
++	 *     break;
++	 * }
++	 */
++	(void)decision;
++}
++
++/*
+  * Kairo KV-cache residency heatmap
+  *
+  * Tracks per-region access frequency and recency for KV-cache data.
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index k9l0m1n..t2u3v4w 100755
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -25,6 +25,61 @@
+ #include "blk-mq.h"
+
+ /*
++ * Kairo KV admission control integration points
++ *
++ * This section documents the conceptual hook sites where admission
++ * decisions would be made before I/O is issued to the flash tier.
++ *
++ * CONCEPTUAL-HOOK: None of these call sites are wired.  The
++ * admission model is defined for RFC review and benchmark modeling
++ * only.
++ *
++ * Policy notes:
++ *
++ *   - Admission should happen before eviction becomes necessary.
++ *   - Decode-hot and model-local data should always be admitted.
++ *   - Short-lived and cheap-to-recompute data should be rejected.
++ *   - Under decode pressure, recomputable objects should be rejected.
++ *   - Shared cache objects across sessions should be admitted.
++ *
++ * Integration with other Kairo stages:
++ *
++ *   Stage 13/14 Decode latency     p99 feedback for pressure check
++ *   Stage 17    KV region hints    Region metadata for request
++ *   Stage 18    Eviction policy    Evicts what admission rejected?
++ *   Stage 19    Heatmap            Hot decode regions get admitted
++ *   Stage 16    blk-cgroup         Per-cgroup admission budgets
++ *   Stage 12/15 Fairness           Model/session admission weights
++ *
++ * Sysfs counters (documented):
++ *
++ *   kairo_admission_requests
++ *   kairo_admission_accepts
++ *   kairo_admission_rejects
++ *   kairo_admission_reject_short_lived
++ *   kairo_admission_reject_recompute_cheap
++ *   kairo_admission_reject_cold
++ *   kairo_admission_reject_pressure
++ *   kairo_admission_accept_model_local
++ *   kairo_admission_accept_decode_hot
++ *   kairo_admission_accept_shared
++ */
++
++#if 0
++/* Example conceptual call site in blk_mq_rq_ctx_init():
++ *
++ * if (rq->q->kairo_admission_enabled &&
++ *     rq->kairo_hints.io_class == KAIRO_CLASS_PREFILL_WRITE) {
++ *     struct kairo_admission_request req;
++ *     // Populate from rq->kairo_hints
++ *     enum kairo_admission_decision dec;
++ *
++ *     dec = kairo_admission_decide(rq->q->kairo_admission_policy, &req);
++ *     kairo_admission_account(dec);
++ * }
++ */
++#endif
++
++/*
+  * For fully allocated queues, the queue dying flag is set.  For
+  * partially allocated queues, we fail at the allocation point.
+  */
+@@ -741,4 +796,6 @@ static void blk_mq_rq_ctx_init(struct blk_mq_tags *tags,
+ 	/* CONCEPTUAL-HOOK: kairo_kv_heatmap_lookup(rq) would be
+ 	 * called here when kairo_heatmap is available. */
++	/* CONCEPTUAL-HOOK: kairo_admission_decide() would be called
++	 * here when kairo_admission_policy is available. */
+ }
+-- 
+2.45.1

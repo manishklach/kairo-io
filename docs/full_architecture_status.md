@@ -29,6 +29,7 @@
 | io_uring KV region hints | `0027` | conceptual | io_uring KV region hint scaffold modeling AI runtime memory regions as registered buffer/file tags; `enum kairo_kv_region_type`, `struct kairo_kv_region_hint`; 2 conceptual hooks; io_uring audit script; user-space region hint structs and benchmark flags |
 | Recompute-aware eviction scheduler | `0028` | conceptual | Eviction-class model and scoring scaffold for AI KV-cache data; `enum kairo_eviction_class`, `struct kairo_eviction_decision`; 5 conceptual helpers; 10 sysfs eviction counters; recompute-aware eviction scoring; benchmark eviction policy modeling |
 | KV residency heatmap | `0029` | conceptual | KV-cache residency heatmap tracking per-region access frequency and recency; `enum kairo_kv_heat_class`, `struct kairo_kv_heatmap_entry`, `struct kairo_kv_heatmap`; 8 conceptual helpers; heat scoring model; 9 sysfs heatmap counters; benchmark heatmap modeling |
+| Flash-backed KV admission control | `0030` | conceptual | KV-cache admission control scaffold deciding which objects deserve flash storage; `enum kairo_admission_decision`, `struct kairo_admission_policy`, `struct kairo_admission_request`; 3 conceptual helpers; 10 sysfs admission counters; policy rules (lifetime, recompute cost, decode pressure, model-local, shared) |
 
 ## Stage 6.5 Status
 
@@ -270,6 +271,22 @@
 | Experiment harness | implemented | `run_stage19_kv_heatmap_experiment.sh` with six canonical cases |
 | Summary parser | implemented | `parse_stage19_kv_heatmap_summary.py` with CSV/pretty output; 6 heatmap counter delta fields |
 | Stage 19 documentation | implemented | `docs/stage19_kv_residency_heatmap.md` |
+
+## Stage 20 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Admission decision enum | scaffolded | `enum kairo_admission_decision` with 9 decisions in blk-mq.h |
+| Admission policy struct | scaffolded | `struct kairo_admission_policy` with 8 fields |
+| Admission request struct | scaffolded | `struct kairo_admission_request` with 13 fields |
+| Conceptual helpers | scaffolded | 3 helpers — decide, accepts, account — all no-ops |
+| Policy rules | scaffolded | 7 priority-ordered conditions (RFC heuristic) |
+| Sysfs counters | documented | 10 counters in `collect_kairo_counters.sh`, no kobject |
+| User-space header | implemented | `kairo_hints.h`: `enum kairo_admission_mode`, name helper |
+| Benchmark admission flags | implemented | `--admission-mode`, `--expected-reuse`, `--expected-lifetime-ms`, `--recompute-cost-us`, `--flash-pressure` |
+| Experiment harness | implemented | `run_stage20_kv_admission_experiment.sh` with six canonical cases |
+| Summary parser | implemented | `parse_stage20_kv_admission_summary.py` with CSV/pretty output; 10 admission counter delta fields |
+| Stage 20 documentation | implemented | `docs/stage20_kv_admission_control.md` |
 
 ## Current Read
 

@@ -566,3 +566,44 @@ framework:
   - integration with Stage 17 KV region hints (conceptual only)
   - decode-latency feedback to decay interval
   - fairness-weighted per-session heat
+
+## Stage 20
+
+- Broad RFC/POC patches involved: `0030`
+- Docs: `docs/stage20_kv_admission_control.md`
+- User-space header: `include/kairo_hints.h` (admission mode enum, name helper)
+- Scripts:
+  - `scripts/run_stage20_kv_admission_experiment.sh`
+  - `scripts/parse_stage20_kv_admission_summary.py`
+- What should compile:
+  - `enum kairo_admission_decision` with 9 decisions in `include/linux/blk-mq.h`
+  - `struct kairo_admission_policy` with enabled, min_expected_reuse,
+    min_lifetime_ms, max_decode_p99_us, flash_pressure_threshold, flags
+  - `struct kairo_admission_request` with model/session/region metadata,
+    expected_reuse, expected_lifetime, recompute_cost, hot/local/shared flags
+  - 3 conceptual helpers: `kairo_admission_decide`, `kairo_admission_accepts`,
+    `kairo_admission_account`
+  - policy rules with 7 priority-ordered conditions (RFC heuristic)
+  - 10 sysfs counters (requests, accepts, rejects, 4 reject reasons,
+    3 accept reasons)
+  - User-space `enum kairo_admission_mode` and name helper
+  - Benchmark `--admission-mode`, `--expected-reuse`, `--expected-lifetime-ms`,
+    `--recompute-cost-us`, `--flash-pressure` options
+  - Benchmark output fields: `admission_mode`, `expected_reuse`,
+    `expected_lifetime_ms`, `recompute_cost_us`, `flash_pressure`,
+    `admission_decision`
+- What should be measurable:
+  - conceptual KV-cache admission control model
+  - six canonical experiment cases covering decode-hot admit, short-lived
+    reject, recompute-cheap reject, model-local admit, pressure reject,
+    shared admit
+  - structured output under `results/stage20/<timestamp>/`
+  - parseable summary logs with CSV and pretty-printed tables
+  - benchmark models admission decisions based on policy rules
+- What is still RFC-only:
+  - dispatch-path admission decisions (CONCEPTUAL-HOOK)
+  - sysfs counter registration (no kobject for admission counters)
+  - decode-p99 feedback to admission policy
+  - per-cgroup admission budgets
+  - integration with Stage 13/14 decode latency (conceptual only)
+  - runtime flash pressure measurement

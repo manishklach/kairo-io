@@ -97,6 +97,11 @@ struct kairo_config {
     unsigned int hot_region_ratio;
     unsigned int region_reuse_ratio;
     unsigned int cold_region_ratio;
+    enum kairo_admission_mode admission_mode;
+    unsigned int expected_reuse;
+    unsigned int expected_lifetime_ms;
+    unsigned int recompute_cost_us;
+    unsigned int flash_pressure;
 };
 
 struct kairo_stats {
@@ -417,6 +422,15 @@ static enum kairo_heatmap_mode parse_heatmap_mode(const char *value)
     return KAIRO_HEATMAP_NONE;
 }
 
+static enum kairo_admission_mode parse_admission_mode(const char *value)
+{
+    if (strcmp(value, "mock") == 0)
+        return KAIRO_ADMIT_MODE_MOCK;
+    if (strcmp(value, "policy") == 0)
+        return KAIRO_ADMIT_MODE_POLICY;
+    return KAIRO_ADMIT_MODE_NONE;
+}
+
 static uint32_t parse_lifetime(const char *value)
 {
     if (strcmp(value, "short") == 0)
@@ -485,7 +499,12 @@ static void usage(const char *prog)
                "  --heatmap-mode <name>       none|mock|region (default: none)\n"
                "  --hot-region-ratio <n>      Hot region ratio (default: 50)\n"
                "  --region-reuse-ratio <n>    Region reuse ratio (default: 50)\n"
-               "  --cold-region-ratio <n>     Cold region ratio (default: 10)\n",
+               "  --cold-region-ratio <n>     Cold region ratio (default: 10)\n"
+               "  --admission-mode <name>     none|mock|policy (default: none)\n"
+               "  --expected-reuse <n>        Expected reuse count (default: 3)\n"
+               "  --expected-lifetime-ms <n>  Expected lifetime ms (default: 3000)\n"
+               "  --recompute-cost-us <n>     Recompute cost us (default: 100)\n"
+               "  --flash-pressure <n>        Flash pressure level (default: 0)\n",
              prog);
 }
 
@@ -653,6 +672,11 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->hot_region_ratio = 50;
     cfg->region_reuse_ratio = 50;
     cfg->cold_region_ratio = 10;
+    cfg->admission_mode = KAIRO_ADMIT_MODE_NONE;
+    cfg->expected_reuse = 3;
+    cfg->expected_lifetime_ms = 3000;
+    cfg->recompute_cost_us = 100;
+    cfg->flash_pressure = 0;
 }
 
 static void apply_mode_defaults(struct kairo_config *cfg)
@@ -1412,6 +1436,24 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
            cfg->recompute_ok ? cfg->cold_region_ratio / 2 : 0);
     printf("kv_heat_protected=%u\n",
            cfg->eviction_policy == KAIRO_EVICT_POLICY_NONE ? 0 : 2);
+    printf("admission_mode=%s\n", kairo_admission_mode_name(cfg->admission_mode));
+    printf("expected_reuse=%u\n", cfg->expected_reuse);
+    printf("expected_lifetime_ms=%u\n", cfg->expected_lifetime_ms);
+    printf("recompute_cost_us=%u\n", cfg->recompute_cost_us);
+    printf("flash_pressure=%u\n", cfg->flash_pressure);
+    /* Model admission decision based on policy rules */
+    {
+        const char *admit = "accept";
+        if (cfg->flash_pressure >= 80 && cfg->recompute_ok && cfg->recompute_cost_us <= 100)
+            admit = "reject-pressure";
+        else if (cfg->expected_lifetime_ms < 500)
+            admit = "reject-short-lived";
+        else if (cfg->recompute_ok && cfg->recompute_cost_us <= 100)
+            admit = "reject-recompute-cheap";
+        else if (cfg->expected_reuse >= 5)
+            admit = "accept-model-local";
+        printf("admission_decision=%s\n", admit);
+    }
     {
         struct kairo_backend_model m = kairo_compute_backend_model(cfg);
         printf("backend_mode=%s\n", kairo_backend_mode_name(cfg->backend_mode));
@@ -1540,6 +1582,11 @@ int main(int argc, char **argv)
         {"hot-region-ratio", required_argument, NULL, 29},
         {"region-reuse-ratio", required_argument, NULL, 30},
         {"cold-region-ratio", required_argument, NULL, 31},
+        {"admission-mode", required_argument, NULL, 32},
+        {"expected-reuse", required_argument, NULL, 33},
+        {"expected-lifetime-ms", required_argument, NULL, 34},
+        {"recompute-cost-us", required_argument, NULL, 35},
+        {"flash-pressure", required_argument, NULL, 36},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -1671,6 +1718,21 @@ int main(int argc, char **argv)
             break;
         case 31:
             cfg.cold_region_ratio = (unsigned int)parse_size(optarg, "cold-region-ratio");
+            break;
+        case 32:
+            cfg.admission_mode = parse_admission_mode(optarg);
+            break;
+        case 33:
+            cfg.expected_reuse = (unsigned int)parse_size(optarg, "expected-reuse");
+            break;
+        case 34:
+            cfg.expected_lifetime_ms = (unsigned int)parse_size(optarg, "expected-lifetime-ms");
+            break;
+        case 35:
+            cfg.recompute_cost_us = (unsigned int)parse_size(optarg, "recompute-cost-us");
+            break;
+        case 36:
+            cfg.flash_pressure = (unsigned int)parse_size(optarg, "flash-pressure");
             break;
         case 4:
             cfg.stride_blocks = (unsigned int)parse_size(optarg, "stride-blocks");
