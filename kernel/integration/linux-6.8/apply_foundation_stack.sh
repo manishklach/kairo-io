@@ -3,15 +3,17 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF' >&2
-usage: apply_foundation_stack.sh [--check-only] [--force] <linux-source-tree>
+usage: apply_foundation_stack.sh [--check-only] [--force] [--with-tracepoints] <linux-source-tree>
 
-  --check-only  verify that the foundation patches apply cleanly
-  --force       allow apply on a Linux git tree with uncommitted changes
+  --check-only         verify that the foundation patches apply cleanly
+  --force              allow apply on a Linux git tree with uncommitted changes
+  --with-tracepoints   also apply foundation tracepoint patch (0005)
 EOF
 }
 
 CHECK_ONLY=0
 FORCE=0
+WITH_TRACEPOINTS=0
 LINUX_TREE=""
 
 while [[ $# -gt 0 ]]; do
@@ -22,6 +24,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force)
       FORCE=1
+      shift
+      ;;
+    --with-tracepoints)
+      WITH_TRACEPOINTS=1
       shift
       ;;
     -h|--help)
@@ -53,6 +59,7 @@ foundation_patches=(
   "$PATCH_DIR/0002-kairo-mq-deadline-decode-priority.patch"
   "$PATCH_DIR/0003-kairo-prefetch-prefill-evict-policy.patch"
   "$PATCH_DIR/0004-kairo-mq-deadline-sysfs-counters.patch"
+  "$PATCH_DIR/0005-kairo-foundation-tracepoints.patch"
 )
 
 required_files=(
@@ -107,6 +114,12 @@ cp "$LINUX_TREE/include/linux/blk_types.h" "$scratch_dir/include/linux/blk_types
 
 echo "[kairo] checking foundation stack against: $LINUX_TREE"
 for patch in "${foundation_patches[@]}"; do
+  # Skip tracepoint patch unless --with-tracepoints
+  if [[ "$(basename "$patch")" == "0005-kairo-foundation-tracepoints.patch" && \
+        $WITH_TRACEPOINTS -ne 1 ]]; then
+    echo "[kairo] skipping tracepoint patch 0005 (use --with-tracepoints to include)"
+    continue
+  fi
   echo "[kairo] git apply --check $(basename "$patch")"
   if ! git -C "$scratch_dir" apply --check --recount "$patch"; then
     fail "apply check failed for $(basename "$patch"); inspect the Linux tree version and patch context"
@@ -122,6 +135,10 @@ fi
 
 echo "[kairo] all checks passed; applying foundation stack"
 for patch in "${foundation_patches[@]}"; do
+  if [[ "$(basename "$patch")" == "0005-kairo-foundation-tracepoints.patch" && \
+        $WITH_TRACEPOINTS -ne 1 ]]; then
+    continue
+  fi
   echo "[kairo] applying $(basename "$patch")"
   if ! git -C "$LINUX_TREE" apply --recount "$patch"; then
     fail "failed to apply $(basename "$patch"); the Linux tree may no longer match the checked context"
@@ -129,3 +146,7 @@ for patch in "${foundation_patches[@]}"; do
 done
 
 echo "[kairo] foundation stack applied successfully"
+
+if [[ $WITH_TRACEPOINTS -eq 1 ]]; then
+  echo "[kairo] foundation tracepoints (0005) included"
+fi

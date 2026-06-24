@@ -369,6 +369,51 @@ grep -qF "kairo_controller_boost_events" "$REPO_ROOT/scripts/collect_kairo_count
 # Verify docs reference Stage 10
 grep -qF "Stage 10" "$DOC10" || fail "Stage 10: doc missing 'Stage 10' reference"
 
+# Stage 11: verify foundation tracepoints
+stage11_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 11: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage11_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 11: missing file: $1"
+}
+
+FP5="$FOUNDATION_DIR/0005-kairo-foundation-tracepoints.patch"
+P22="$PATCH_DIR/0022-rfc-kairo-foundation-tracepoints-linux-6.8.patch"
+DOC11="$REPO_ROOT/docs/stage11_foundation_tracepoints.md"
+V11TP="$REPO_ROOT/kernel/integration/linux-6.8/validate_foundation_tracepoints.sh"
+R11SE="$REPO_ROOT/scripts/run_stage11_foundation_trace_experiment.sh"
+P11SP="$REPO_ROOT/scripts/parse_stage11_foundation_trace_summary.py"
+
+stage11_file_exists "$FP5"
+stage11_file_exists "$P22"
+stage11_file_exists "$DOC11"
+stage11_file_exists "$V11TP"
+stage11_file_exists "$R11SE"
+stage11_file_exists "$P11SP"
+stage11_has_pattern "$FP5" "TRACE_EVENT(kairo_request_classified"
+stage11_has_pattern "$FP5" "TRACE_EVENT(kairo_decode_dispatch"
+stage11_has_pattern "$FP5" "TRACE_EVENT(kairo_prefetch_dispatch"
+stage11_has_pattern "$FP5" "TRACE_EVENT(kairo_write_demoted"
+stage11_has_pattern "$P22" "TRACE_EVENT(kairo_request_classified"
+stage11_has_pattern "$P22" "TRACE_EVENT(kairo_decode_dispatch"
+stage11_has_pattern "$P22" "TRACE_EVENT(kairo_prefetch_dispatch"
+stage11_has_pattern "$P22" "TRACE_EVENT(kairo_write_demoted"
+stage11_has_pattern "$DOC11" "compile-targeted"
+stage11_has_pattern "$V11TP" "TRACE_EVENT("
+stage11_has_pattern "$R11SE" "tracepoints_available"
+stage11_has_pattern "$R11SE" "results/stage11"
+stage11_has_pattern "$P11SP" "--csv"
+
+# Verify apply_foundation_stack.sh handles --with-tracepoints
+grep -qF -- "--with-tracepoints" "$REPO_ROOT/kernel/integration/linux-6.8/apply_foundation_stack.sh" || \
+  fail "Stage 11: apply_foundation_stack.sh missing --with-tracepoints"
+
+# Verify foundation README mentions tracepoints
+grep -qF "0005-kairo-foundation-tracepoints" "$FOUNDATION_DIR/README.md" || \
+  fail "Stage 11: foundation README missing tracepoint patch reference"
+
 # Stage 9: verify WSL validation files
 [[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
 [[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"

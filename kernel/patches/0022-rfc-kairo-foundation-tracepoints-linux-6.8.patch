@@ -1,0 +1,315 @@
+From 1010101010100000000000000000000000000022 Mon Sep 17 00:00:00 2001
+From: Kairo POC <kairo-poc@local>
+Date: Mon, 22 Jun 2026 18:00:00 -0700
+Subject: [RFC/POC PATCH 12/9] Kairo compile-targeted foundation tracepoints
+ (Linux 6.8.x)
+
+RFC/POC ONLY:
+This patch adds a compile-targeted subset of Kairo tracepoints for the
+Linux 6.8.x foundation stack. It is the broad-RFC mirror of the foundation
+patch 0005.
+
+Only four tracepoints are included — those that hook directly into
+foundation code paths:
+
+- kairo_request_classified: emitted after request classification
+- kairo_decode_dispatch: emitted on decode read dispatch
+- kairo_prefetch_dispatch: emitted on prefetch read dispatch
+- kairo_write_demoted: emitted when a write is demoted behind decode/prefetch
+
+This is distinct from the Stage 8 broad tracepoint scaffold (0017), which
+includes 9 tracepoints covering model/session/backend mapping as well.
+Stage 11 (this patch) is intentionally smaller and more credible as a
+compile-targeted foundation addition.
+
+Subsystem touched:
+- include/trace/events/kairo.h (new)
+- block/blk-mq.c
+- block/mq-deadline.c
+
+Kairo concept:
+- tracepoint for request classification in the blk-mq layer
+- tracepoint for decode dispatch in mq-deadline
+- tracepoint for prefetch dispatch in mq-deadline
+- tracepoint for write demotion in mq-deadline
+- compile-targeted call site annotations (LINUX-6.8-CHECK)
+- no model/session/backend fields in this subset
+- not stable ABI
+
+Still to validate:
+- exact call site placement against Linux 6.8.x tree
+- whether the trace_kairo_request_classified() call fits in blk-mq.c
+  near kairo_init_request_hints or rq_set_kairo_from_bio
+- whether sysfs_dev->devt is available at the dispatch trace points
+- compile impact of the tracepoint header on blk-mq.c and mq-deadline.c
+
+diff --git a/include/trace/events/kairo.h b/include/trace/events/kairo.h
+new file mode 100644
+index 0000000..8e3a2f1
+--- /dev/null
++++ b/include/trace/events/kairo.h
+@@ -0,0 +1,210 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Kairo tracepoint definitions — foundation subset.
++ *
++ * Four tracepoints for Kairo request lifecycle observability:
++ *   kairo_request_classified  — emitted after request classification
++ *   kairo_decode_dispatch     — emitted on decode read dispatch
++ *   kairo_prefetch_dispatch   — emitted on prefetch read dispatch
++ *   kairo_write_demoted       — emitted when a write is demoted
++ *
++ * This is a compile-targeted subset of the broader Stage 8 tracepoint
++ * scaffold. Only the four tracepoints that hook directly into foundation
++ * code paths are included. Model/session/backend tracepoints remain in
++ * the broad RFC series only.
++ *
++ * Not stable ABI. For local kernel research only.
++ */
++
++#undef TRACE_SYSTEM
++#define TRACE_SYSTEM kairo
++
++#if !defined(_TRACE_KAIRO_H) || defined(TRACE_HEADER_MULTI_READ)
++#define _TRACE_KAIRO_H
++
++#include <linux/tracepoint.h>
++#include <linux/types.h>
++
++/* io_class values mirror enum kairo_io_class from blk_types.h */
++#define KAIRO_TRACE_IO_NONE		0
++#define KAIRO_TRACE_IO_DECODE_READ	1
++#define KAIRO_TRACE_IO_PREFETCH_READ	2
++#define KAIRO_TRACE_IO_PREFILL_WRITE	3
++#define KAIRO_TRACE_IO_EVICT		4
++#define KAIRO_TRACE_IO_NORMAL		5
++
++/* demotion reason values */
++#define KAIRO_TRACE_DEMOTE_DECODE_PRESSURE	0
++#define KAIRO_TRACE_DEMOTE_PREFETCH_URGENT	1
++#define KAIRO_TRACE_DEMOTE_NORMAL		2
++
++/*
++ * Tracepoint: kairo_request_classified
++ *
++ * Emitted when Kairo classifies a request. Call site in blk-mq.c near
++ * kairo_classify_rq() or rq_set_kairo_from_bio().
++ */
++TRACE_EVENT(kairo_request_classified,
++	TP_PROTO(unsigned int dev, sector_t sector, unsigned int nr_bytes,
++		 unsigned int op, unsigned int ioprio,
++		 unsigned int io_class, unsigned int flags),
++
++	TP_ARGS(dev, sector, nr_bytes, op, ioprio, io_class, flags),
++
++	TP_STRUCT__entry(
++		__field(unsigned int, dev)
++		__field(sector_t, sector)
++		__field(unsigned int, nr_bytes)
++		__field(unsigned int, op)
++		__field(unsigned int, ioprio)
++		__field(unsigned int, io_class)
++		__field(unsigned int, flags)
++	),
++
++	TP_fast_assign(
++		__entry->dev		= dev;
++		__entry->sector		= sector;
++		__entry->nr_bytes	= nr_bytes;
++		__entry->op		= op;
++		__entry->ioprio		= ioprio;
++		__entry->io_class	= io_class;
++		__entry->flags		= flags;
++	),
++
++	TP_printk("dev=%u sector=%llu nr_bytes=%u op=%u ioprio=%u "
++		  "io_class=%u flags=%u",
++		  __entry->dev, (unsigned long long)__entry->sector,
++		  __entry->nr_bytes, __entry->op, __entry->ioprio,
++		  __entry->io_class, __entry->flags)
++);
++
++/*
++ * Tracepoint: kairo_decode_dispatch
++ *
++ * Emitted when a decode-critical read is dispatched from mq-deadline.
++ * Call site in dd_kairo_dispatch_decode_request().
++ */
++TRACE_EVENT(kairo_decode_dispatch,
++	TP_PROTO(unsigned int dev, sector_t sector, unsigned int nr_bytes,
++		 unsigned int budget_used),
++
++	TP_ARGS(dev, sector, nr_bytes, budget_used),
++
++	TP_STRUCT__entry(
++		__field(unsigned int, dev)
++		__field(sector_t, sector)
++		__field(unsigned int, nr_bytes)
++		__field(unsigned int, budget_used)
++	),
++
++	TP_fast_assign(
++		__entry->dev		= dev;
++		__entry->sector		= sector;
++		__entry->nr_bytes	= nr_bytes;
++		__entry->budget_used	= budget_used;
++	),
++
++	TP_printk("dev=%u sector=%llu nr_bytes=%u budget=%u",
++		  __entry->dev, (unsigned long long)__entry->sector,
++		  __entry->nr_bytes, __entry->budget_used)
++);
++
++/*
++ * Tracepoint: kairo_prefetch_dispatch
++ *
++ * Emitted when a prefetch read is dispatched from mq-deadline.
++ * Call site in dd_kairo_dispatch_prefetch_request().
++ */
++TRACE_EVENT(kairo_prefetch_dispatch,
++	TP_PROTO(unsigned int dev, sector_t sector, unsigned int nr_bytes,
++		 unsigned int budget_used, unsigned long long deadline_ns,
++		 unsigned int deadline_near),
++
++	TP_ARGS(dev, sector, nr_bytes, budget_used, deadline_ns,
++		deadline_near),
++
++	TP_STRUCT__entry(
++		__field(unsigned int, dev)
++		__field(sector_t, sector)
++		__field(unsigned int, nr_bytes)
++		__field(unsigned int, budget_used)
++		__field(unsigned long long, deadline_ns)
++		__field(unsigned int, deadline_near)
++	),
++
++	TP_fast_assign(
++		__entry->dev		= dev;
++		__entry->sector		= sector;
++		__entry->nr_bytes	= nr_bytes;
++		__entry->budget_used	= budget_used;
++		__entry->deadline_ns	= deadline_ns;
++		__entry->deadline_near	= deadline_near;
++	),
++
++	TP_printk("dev=%u sector=%llu nr_bytes=%u budget=%u "
++		  "deadline_ns=%llu deadline_near=%u",
++		  __entry->dev, (unsigned long long)__entry->sector,
++		  __entry->nr_bytes, __entry->budget_used,
++		  (unsigned long long)__entry->deadline_ns,
++		  __entry->deadline_near)
++);
++
++/*
++ * Tracepoint: kairo_write_demoted
++ *
++ * Emitted when a prefill or evict write is demoted behind decode/prefetch.
++ * Call site in dd_kairo_should_demote_prefill() or
++ * dd_kairo_should_demote_evict().
++ */
++TRACE_EVENT(kairo_write_demoted,
++	TP_PROTO(unsigned int dev, sector_t sector, unsigned int nr_bytes,
++		 unsigned int io_class, unsigned int reason,
++		 unsigned int starvation_escape),
++
++	TP_ARGS(dev, sector, nr_bytes, io_class, reason, starvation_escape),
++
++	TP_STRUCT__entry(
++		__field(unsigned int, dev)
++		__field(sector_t, sector)
++		__field(unsigned int, nr_bytes)
++		__field(unsigned int, io_class)
++		__field(unsigned int, reason)
++		__field(unsigned int, starvation_escape)
++	),
++
++	TP_fast_assign(
++		__entry->dev		= dev;
++		__entry->sector		= sector;
++		__entry->nr_bytes	= nr_bytes;
++		__entry->io_class	= io_class;
++		__entry->reason		= reason;
++		__entry->starvation_escape = starvation_escape;
++	),
++
++	TP_printk("dev=%u sector=%llu nr_bytes=%u io_class=%u "
++		  "reason=%u starvation_escape=%u",
++		  __entry->dev, (unsigned long long)__entry->sector,
++		  __entry->nr_bytes, __entry->io_class, __entry->reason,
++		  __entry->starvation_escape)
++);
++
++#endif /* _TRACE_KAIRO_H */
++
++/* RFC/POC: define_trace.h must be included last */
++#include <trace/define_trace.h>
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index 74c2142..a8e5f3b 100755
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -1,5 +1,8 @@
+ #include <linux/blk-mq.h>
+ #include <linux/blk-pm.h>
++#include <trace/events/kairo.h>
++
++/* LINUX-6.8-CHECK: trace_kairo_request_classified() call site.
++ * Should be placed near kairo_classify_rq() or rq_set_kairo_from_bio()
++ * where the request has valid sector/bytes/op metadata. */
+ 
+ #include "blk-mq.h"
+ #include "blk-mq-debugfs.h"
+diff --git a/block/mq-deadline.c b/block/mq-deadline.c
+index 82a979d..a1f5c3b 100755
+--- a/block/mq-deadline.c
++++ b/block/mq-deadline.c
+@@ -8,6 +8,7 @@
+  */
+ #include <linux/blkdev.h>
+ #include <linux/blk-mq.h>
++#include <trace/events/kairo.h>
+ #include "blk-mq.h"
+ #include "blk-mq-debugfs.h"
+ #include "blk-mq-sched.h"
+@@ -603,6 +604,17 @@ static struct request *dd_kairo_dispatch_decode_request(struct deadline_data *dd
+ 		dd->kairo_decode_budget_used++;
+ 		dd->kairo_decode_dispatches++;
++
++		/* LINUX-6.8-CHECK: trace call after dispatch decision,
++		 * before return. rq->q->sysfs_dev->devt for device id. */
++		trace_kairo_decode_dispatch(
++			rq->q->sysfs_dev->devt,
++			blk_rq_pos(rq),
++			blk_rq_bytes(rq),
++			dd->kairo_decode_budget_used);
++
+ 		return dd_kairo_finalize_request(dd, rq, DD_READ);
+ 	}
+ 
+@@ -643,6 +655,8 @@ static bool dd_kairo_should_demote_prefill(struct deadline_data *dd,
+ 	return kairo_is_prefill_write(rq) &&
+ 	       (dd_kairo_has_decode_read(dd) ||
+ 		dd->kairo_prefetch_deadline_hits > dd->kairo_prefetch_dispatches);
++	/* LINUX-6.8-CHECK: trace_kairo_write_demoted() call site.
++	 * Emit when demotion decision is true. */
+ }
+ 
+ static bool dd_kairo_should_demote_evict(struct deadline_data *dd,
+@@ -670,6 +684,18 @@ static struct request *dd_dispatch_request(struct blk_mq_hw_ctx *hctx)
+ 	rq = dd_kairo_dispatch_decode_request(dd, now);
+ 	if (rq)
+ 		goto unlock;
++
++	/* LINUX-6.8-CHECK: trace_kairo_prefetch_dispatch() call site.
++	 * Place after prefetch dispatch in dd_kairo_dispatch_prefetch_request().
++	 * Fields: dev, sector, nr_bytes, budget_used, deadline_ns, deadline_near.
++	 *
++	 * Example:
++	 * trace_kairo_prefetch_dispatch(
++	 *     rq->q->sysfs_dev->devt,
++	 *     blk_rq_pos(rq), blk_rq_bytes(rq),
++	 *     dd->kairo_prefetch_budget_used,
++	 *     rq->kairo_hints.deadline_ns, 0);
++	 */
+ 
+ 	rq = dd_dispatch_prio_aged_requests(dd, now);
+ 	if (rq)

@@ -90,6 +90,8 @@ mq_deadline_symbols=(
   "kairo_evict_demotion_observations"
   "kairo_normal_dispatches"
   "kairo_starvation_escapes"
+  # Stage 11: tracepoint includes (optional)
+  "trace/events/kairo.h"
 )
 
 missing=0

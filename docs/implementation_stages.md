@@ -260,3 +260,33 @@ framework:
   - `kairo_controller_update` tracepoint (documented but not wired)
   - interaction with BPF dispatch hook (patch 0016)
   - per-device budget tracking (currently updates global variables)
+
+## Stage 11
+
+- Foundation patches involved: `foundation/0005`
+- Broad RFC/POC patches involved: `0022`
+- Docs: `docs/stage11_foundation_tracepoints.md`
+- Scripts:
+  - `kernel/integration/linux-6.8/validate_foundation_tracepoints.sh`
+  - `scripts/run_stage11_foundation_trace_experiment.sh`
+  - `scripts/parse_stage11_foundation_trace_summary.py`
+- Integration: `apply_foundation_stack.sh --with-tracepoints` (optional)
+- What should compile:
+  - `include/trace/events/kairo.h` with 4 TRACE_EVENT definitions:
+    `kairo_request_classified`, `kairo_decode_dispatch`,
+    `kairo_prefetch_dispatch`, `kairo_write_demoted`
+  - `#include <trace/events/kairo.h>` in `block/blk-mq.c` and
+    `block/mq-deadline.c`
+  - compile-targeted call site annotations (`LINUX-6.8-CHECK`)
+  - trace call in `dd_kairo_dispatch_decode_request()`
+  - no model/session/backend fields in tracepoint payloads
+- What should be measurable:
+  - tracepoint presence in `/sys/kernel/tracing/events/kairo/`
+  - per-request lifecycle trace events (classification, dispatch, demotion)
+  - experiment harness detects `tracepoints_available=true|false`
+  - structured results under `results/stage11/<timestamp>/`
+- What distinguishes Stage 11 from Stage 8:
+  - Stage 11: 4 tracepoints, compile-targeted foundation, minimal payloads
+  - Stage 8: 9 tracepoints, broad RFC scaffold, model/session/backend fields
+  - Stage 11 applies only with `--with-tracepoints` flag
+  - Stage 11 uses `LINUX-6.8-CHECK` annotations (vs CONCEPTUAL-HOOK in Stage 8)

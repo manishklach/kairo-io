@@ -31,6 +31,7 @@ local apply/build target for Stage 1 and Stage 2 validation.
 | `0016` | BPF hook | `bpf`, `mq-deadline` | BPF_PROG_TYPE_KAIRO_SCHED for programmable I/O dispatch arbitration; additive fallback to static logic |
 | `0017` | tracepoints | `block/blk-mq`, `block/mq-deadline`, `block/blk-merge`, `drivers/nvme/host` | RFC/POC Kairo tracepoint scaffold: 9 TRACE_EVENT definitions in `include/trace/events/kairo.h`; conceptual call sites across block and NVMe layers; bpftrace scripts; trace experiment harness; trace log parser |
 | `0018` | adaptive latency controller | `block/mq-deadline` | Adjusts decode and prefetch budgets based on observed decode p99 tail latency; three modes (OFF/OBSERVE/ADAPTIVE); sysfs knobs and counters; six canonical experiment cases |
+| `0022` / foundation `0005` | foundation tracepoints | `include/trace/events/kairo.h`, `block/blk-mq.c`, `block/mq-deadline.c` | Compile-targeted foundation tracepoint subset (4 tracepoints: classify, decode dispatch, prefetch dispatch, write demoted); optional apply via `--with-tracepoints`; LINUX-6.8-CHECK annotations; distinct from Stage 8 broad scaffold |
 
 ## Design Themes
 

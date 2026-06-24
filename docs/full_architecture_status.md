@@ -20,6 +20,7 @@
 | real merge bias | `0015` | implemented | kairo_attempt_forced_merge() with safety checks; fills empty body from 0004 |
 | BPF dispatch hook | `0016` | conceptual | BPF_PROG_TYPE_KAIRO_SCHED for programmable I/O scheduling |
 | adaptive latency controller | `0018` | conceptual | Adjusts decode/prefetch budgets based on observed decode p99 latency; sysfs knobs and counters; six canonical experiment cases |
+| foundation tracepoints | `0022` / foundation `0005` | compile-targeted | Four compile-targeted tracepoints (classify, decode dispatch, prefetch dispatch, write demoted) for Linux 6.8.x foundation; optional apply via `--with-tracepoints`; `LINUX-6.8-CHECK` annotations |
 
 ## Stage 6.5 Status
 
@@ -115,6 +116,23 @@
 | WSL validation snapshot | implemented | `scripts/run_wsl_validation_snapshot.sh` packages local WSL validation evidence and writes `docs/validation_snapshot.md` without overclaiming patched-kernel behavior |
 | WSL environment check | implemented | `scripts/check_wsl_environment.sh` reports environment and tool availability without requiring root |
 | Snapshot parser | implemented | `scripts/parse_validation_snapshot.py` renders Markdown and CSV from `summary.log` |
+
+## Stage 11 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Foundation tracepoint header | implemented | `include/trace/events/kairo.h` with 4 TRACE_EVENT definitions in foundation patch 0005 |
+| Classification tracepoint | compile-targeted | `kairo_request_classified` — dev, sector, nr_bytes, op, ioprio, io_class, flags |
+| Decode dispatch tracepoint | compile-targeted | `kairo_decode_dispatch` — dev, sector, nr_bytes, budget_used; trace call in `dd_kairo_dispatch_decode_request()` |
+| Prefetch dispatch tracepoint | compile-targeted | `kairo_prefetch_dispatch` — dev, sector, nr_bytes, budget_used, deadline_ns, deadline_near; LINUX-6.8-CHECK annotation |
+| Write demoted tracepoint | compile-targeted | `kairo_write_demoted` — dev, sector, nr_bytes, io_class, reason, starvation_escape; LINUX-6.8-CHECK annotation |
+| Header includes | implemented | `#include <trace/events/kairo.h>` in both `block/blk-mq.c` and `block/mq-deadline.c` |
+| Optional apply | implemented | `apply_foundation_stack.sh --with-tracepoints` applies patch 0005; default is patches 0001-0004 only |
+| Broad RFC mirror | implemented | `0022-rfc-kairo-foundation-tracepoints-linux-6.8.patch` with RFC/POC header |
+| Foundation validation script | implemented | `validate_foundation_tracepoints.sh` checks header, TRACE_EVENTs, includes, and LINUX-6.8-CHECK annotations |
+| Experiment harness | implemented | `run_stage11_foundation_trace_experiment.sh` with trace detection, ftrace capture, and structured results |
+| Summary parser | implemented | `parse_stage11_foundation_trace_summary.py` with CSV and pretty-printed output |
+| Stage 11 documentation | implemented | `docs/stage11_foundation_tracepoints.md` |
 
 ## Current Read
 

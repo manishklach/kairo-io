@@ -32,7 +32,25 @@ experiments:
 2. `0002-kairo-mq-deadline-decode-priority.patch`
 3. `0003-kairo-prefetch-prefill-evict-policy.patch`
 4. `0004-kairo-mq-deadline-sysfs-counters.patch`
+5. `0005-kairo-foundation-tracepoints.patch` (optional; apply with `--with-tracepoints`)
 
 ## Target Kernel
 
 The target kernel series for this stack is Linux `6.8.x`.
+
+## Applying with Tracepoints
+
+By default, only patches 0001-0004 are applied. To also include foundation
+tracepoints (0005):
+
+```bash
+./kernel/integration/linux-6.8/apply_foundation_stack.sh /path/to/linux-6.8 --with-tracepoints
+```
+
+Patch 0005 adds four compile-targeted tracepoints:
+- `kairo_request_classified`
+- `kairo_decode_dispatch`
+- `kairo_prefetch_dispatch`
+- `kairo_write_demoted`
+
+See `docs/stage11_foundation_tracepoints.md` for details.
