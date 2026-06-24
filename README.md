@@ -146,9 +146,10 @@ This checks repository consistency, benchmark build, experiment harness
 dry-runs, and optional user-space benchmark smoke tests. It does not claim
 patched-kernel runtime validation.
 
-Latest snapshot:
+Latest snapshots:
 
-* [docs/validation_snapshot.md](docs/validation_snapshot.md)
+* [docs/validation_snapshot.md](docs/validation_snapshot.md) — WSL repo consistency + dry-runs
+* [docs/qemu_validation.md](docs/qemu_validation.md) — QEMU guest boot with sysfs counter validation (44/44)
 
 ---
 
@@ -577,13 +578,19 @@ Tracked validation lives in:
 * [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
 * [docs/full_architecture_status.md](docs/full_architecture_status.md)
 * [docs/validation_snapshot.md](docs/validation_snapshot.md)
+* [docs/qemu_validation.md](docs/qemu_validation.md)
 * [docs/kernel_foundation_stack.md](docs/kernel_foundation_stack.md)
 * [docs/kernel_foundation_invariants.md](docs/kernel_foundation_invariants.md)
 
 Primary validation entry points:
 
 ```bash
+# WSL repo consistency + dry-run validation
 ./scripts/run_wsl_validation_snapshot.sh
+
+# QEMU guest boot with sysfs counter validation (44/44)
+./scripts/run_kairo_qemu_validation.sh --kernel ~/linux-6.8/arch/x86_64/boot/bzImage --mem 2048
+```
 ./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1
 ./scripts/run_ab_experiment.sh /mnt/nvme/kairo.test nvme0n1
 ```
