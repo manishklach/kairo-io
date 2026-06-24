@@ -48,7 +48,7 @@ new file mode 100644
 index 0000000..8e3a2f1
 --- /dev/null
 +++ b/include/trace/events/kairo.h
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,194 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Kairo tracepoint definitions — foundation subset.

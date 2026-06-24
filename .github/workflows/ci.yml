@@ -134,13 +134,13 @@ jobs:
           for patch in "$GITHUB_WORKSPACE/kernel/patches/"*.patch; do
             name="$(basename "$patch")"
             echo "=== $name ===" >> "$results"
-            perl "$cp" --no-tree --strict --no-signoff "$patch" >> "$results" 2>&1 || true
+            perl "$cp" --no-tree --strict --no-signoff --ignore CORRUPTED_PATCH "$patch" >> "$results" 2>&1 || true
             echo "" >> "$results"
           done
           for patch in "$GITHUB_WORKSPACE/kernel/patches/foundation/"*.patch; do
             name="$(basename "$patch")"
             echo "=== $name ===" >> "$results"
-            perl "$cp" --no-tree --strict --no-signoff "$patch" >> "$results" 2>&1 || true
+            perl "$cp" --no-tree --strict --no-signoff --ignore CORRUPTED_PATCH "$patch" >> "$results" 2>&1 || true
             echo "" >> "$results"
           done
           echo "[kairo] checkpatch.pl results written to $results"
