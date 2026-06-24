@@ -129,7 +129,10 @@ This preserves the full Kairo architecture direction, including:
 * ephemeral and recomputable cache semantics,
 * model/session/lifetime placement metadata,
 * generic NVMe backend mapping hooks,
-* and tracepoint observability.
+* tracepoint observability,
+* recompute-aware eviction policy,
+* KV-cache residency heatmap tracking,
+* and KV admission control for flash-backed storage.
 
 ## Current Validation Snapshot
 
@@ -284,6 +287,9 @@ kernel/patches/
   0025-rfc-kairo-fairness-accounting-sysfs.patch
   0026-rfc-kairo-blkcg-ai-io-controller.patch
   0027-rfc-kairo-io-uring-kv-region-hints.patch
+  0028-rfc-kairo-recompute-aware-eviction.patch
+  0029-rfc-kairo-kv-residency-heatmap.patch
+  0030-rfc-kairo-kv-admission-control.patch
 ```
 
 This broader series is the architecture map. Not every patch in this track is compile-targeted yet, and numbering intentionally has gaps where intermediate local RFC ideas were not retained in the repo.
@@ -308,6 +314,9 @@ This broader series is the architecture map. Not every patch in this track is co
 | Stage 15 | fairness accounting and sysfs wiring | `0025` | conceptual wiring + experiment tooling |
 | Stage 16 | blk-cgroup AI I/O controller | `0026` | conceptual blkcg scaffold + experiment tooling |
 | Stage 17 | io_uring KV region hints | `0027` | conceptual io_uring region scaffold + experiment tooling |
+| Stage 18 | recompute-aware eviction scheduler | `0028` | conceptual eviction class/score scaffold + experiment tooling |
+| Stage 19 | KV residency heatmap | `0029` | conceptual hot/warm/cold/evictable tracking + experiment tooling |
+| Stage 20 | flash-backed KV admission control | `0030` | conceptual admission policy scaffold + experiment tooling |
 
 For the detailed tracker, use:
 
@@ -329,6 +338,9 @@ For the detailed tracker, use:
 | O(1) dispatch path | `0013` broad series patch | patched-kernel validation pending |
 | Merge bias / request shaping | `0004` foundation instrumentation + `0015` broad-series merge path | impact on real NVMe traffic still unvalidated |
 | `io_uring` hints | `0014` SQE flag and `0027` region-hint scaffold | end-to-end kernel plumbing remains experimental |
+| Recompute-aware eviction | `0028` eviction class/score scaffold | dispatch-path eviction integration remains conceptual |
+| KV residency heatmap | `0029` heat class/tracking scaffold | fixed-array linear scan is RFC-only; no periodic decay timer wired |
+| KV admission control | `0030` admission policy scaffold | decode-p99 feedback and per-cgroup budgets remain conceptual |
 | Ephemeral / recomputable semantics | user/kernel hint scaffolds | no production ABI claimed |
 | Placement / lifetime metadata | benchmark-visible and metadata-visible | physical device placement not claimed |
 | Generic NVMe backend mapping | benchmark-visible generic mapping scaffold | real Streams/FDP/ZNS placement unvalidated |
@@ -482,6 +494,24 @@ On an unpatched kernel, trace experiments should still run and report tracepoint
 ./scripts/run_stage17_io_uring_region_experiment.sh /mnt/nvme/kairo.test nvme0n1
 ```
 
+### Stage 18 recompute-aware eviction experiment
+
+```bash
+./scripts/run_stage18_recompute_eviction_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 19 KV heatmap experiment
+
+```bash
+./scripts/run_stage19_kv_heatmap_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
+### Stage 20 KV admission control experiment
+
+```bash
+./scripts/run_stage20_kv_admission_experiment.sh /mnt/nvme/kairo.test nvme0n1
+```
+
 ---
 
 ## Success Metrics
@@ -567,8 +597,8 @@ mq-deadline object build:     locally validated
 blk-mq object build:          not yet cleanly validated in matrix
 Boot validation:              pending
 Runtime sysfs visibility:     pending
-Benchmark counter movement:   pending
-Stage 8-17 harnesses:         implemented, but mostly dry-run/user-space validated
+Benchmark counter movement:     pending
+Stage 8-20 harnesses:         implemented, but mostly dry-run/user-space validated
 Full RFC series compile:      not claimed
 ```
 
@@ -598,6 +628,9 @@ Key docs:
 * [docs/stage15_fairness_accounting_sysfs.md](docs/stage15_fairness_accounting_sysfs.md)
 * [docs/stage16_blkcg_ai_io_controller.md](docs/stage16_blkcg_ai_io_controller.md)
 * [docs/stage17_io_uring_kv_region_hints.md](docs/stage17_io_uring_kv_region_hints.md)
+* [docs/stage18_recompute_aware_eviction.md](docs/stage18_recompute_aware_eviction.md)
+* [docs/stage19_kv_residency_heatmap.md](docs/stage19_kv_residency_heatmap.md)
+* [docs/stage20_kv_admission_control.md](docs/stage20_kv_admission_control.md)
 * [docs/validation_snapshot.md](docs/validation_snapshot.md)
 * [docs/tested_kernel_matrix.md](docs/tested_kernel_matrix.md)
 

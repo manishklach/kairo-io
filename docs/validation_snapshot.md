@@ -1,6 +1,6 @@
 # Kairo Validation Snapshot
 
-Date: 20260624-101829
+Date: 20260624-102820
 Environment: WSL
 Kernel: 6.6.87.2-microsoft-standard-WSL2+
 WSL: true
@@ -61,6 +61,6 @@ WSL: true
 - user_bench_baseline.log
 - user_bench_mixed.log
 
-Results directory: `results/validation/20260624-101829`
+Results directory: `results/validation/20260624-102820`
 
 Notes: WSL validation only; no custom kernel boot, no Kairo sysfs counters, no physical NVMe placement validation.
