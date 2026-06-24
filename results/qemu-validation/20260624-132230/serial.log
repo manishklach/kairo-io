@@ -1,0 +1,63 @@
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+
+
+iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7EFCAB90+7EF0AB90 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from ROM..c[?7l[2J[0m.[    2.323159] fail to initialize ptp_kvm
+[kairo-qemu] init started (static binary)
+[kairo-qemu] kernel: 
+Linux version 6.8.12 (manishkl@MATARANI) (gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #2 SMP PREEMPT_DYNAMIC Wed Jun 24 13:10:44 PDT 2026
+[kairo-qemu] loading kairo_validation_mod.ko...
+[kairo-qemu]   module load FAILED
+[kairo-qemu] Checking Kairo sysfs counters...
+[kairo-qemu]   MISSING decode_dispatches
+[kairo-qemu]   MISSING prefetch_dispatches
+[kairo-qemu]   MISSING prefetch_deadline_hits
+[kairo-qemu]   MISSING prefetch_budget_skips
+[kairo-qemu]   MISSING prefill_dispatches
+[kairo-qemu]   MISSING evict_dispatches
+[kairo-qemu]   MISSING normal_dispatches
+[kairo-qemu]   MISSING starvation_escapes
+[kairo-qemu]   MISSING hinted_requests
+[kairo-qemu]   MISSING unhinted_requests
+[kairo-qemu]   MISSING fairness_decode_budget_used
+[kairo-qemu]   MISSING fairness_prefetch_budget_used
+[kairo-qemu]   MISSING fairness_epoch_cycles
+[kairo-qemu]   MISSING blkcg_iops_read
+[kairo-qemu]   MISSING blkcg_iops_write
+[kairo-qemu]   MISSING blkcg_latency_avg_us
+[kairo-qemu]   MISSING blkcg_token_deficit
+[kairo-qemu]   MISSING kv_region_hints
+[kairo-qemu]   MISSING kv_region_hits
+[kairo-qemu]   MISSING kv_region_misses
+[kairo-qemu]   MISSING eviction_total
+[kairo-qemu]   MISSING eviction_recomputed
+[kairo-qemu]   MISSING eviction_kv_cache
+[kairo-qemu]   MISSING eviction_model_local
+[kairo-qemu]   MISSING eviction_decode_hot
+[kairo-qemu]   MISSING eviction_session_private
+[kairo-qemu]   MISSING eviction_persistent
+[kairo-qemu]   MISSING eviction_other
+[kairo-qemu]   MISSING heat_scan_regions
+[kairo-qemu]   MISSING heat_active_regions
+[kairo-qemu]   MISSING heat_cold_regions
+[kairo-qemu]   MISSING heat_frozen_regions
+[kairo-qemu]   MISSING heat_reheat_count
+[kairo-qemu]   MISSING heat_age_decay_count
+[kairo-qemu]   MISSING heat_promotions
+[kairo-qemu]   MISSING heat_demotions
+[kairo-qemu]   MISSING admit_accepted
+[kairo-qemu]   MISSING admit_rejected_recompute
+[kairo-qemu]   MISSING admit_rejected_lifetime
+[kairo-qemu]   MISSING admit_rejected_flash_pressure
+[kairo-qemu]   MISSING admit_rejected_reuse
+[kairo-qemu]   MISSING admit_rejected_policy
+[kairo-qemu]   MISSING admit_promoted
+[kairo-qemu]   MISSING admit_demoted
+[kairo-qemu] === COUNTER CHECK RESULT === found=0 missing=44
+[kairo-qemu] kairo_bench found, running smoke test...
+[kairo-qemu] kairo_bench exit code: 127
+[kairo-qemu] === KAIRO QEMU VALIDATION COMPLETE === PASS:0 FAIL:44
+[    4.874145] reboot: Power down

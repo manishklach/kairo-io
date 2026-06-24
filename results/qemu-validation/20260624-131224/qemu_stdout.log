@@ -1,0 +1,5 @@
+Could not access KVM kernel module: Permission denied
+qemu-system-x86_64: failed to initialize kvm: Permission denied
+qemu-system-x86_64: falling back to tcg
+QEMU 8.2.2 monitor - type 'help' for more information
+qemu-system-x86_64: CPU model 'host' requires KVM or HVF

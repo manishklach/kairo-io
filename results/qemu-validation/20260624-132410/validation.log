@@ -1,0 +1,53 @@
+[kairo-qemu] init started (static binary)
+[kairo-qemu] kernel: 
+[kairo-qemu] loading kairo_validation_mod.ko...
+[kairo-qemu]   module loaded via finit_module
+[kairo-qemu] Checking Kairo sysfs counters...
+[kairo-qemu]   COUNTER decode_dispatches = 42
+[kairo-qemu]   COUNTER prefetch_dispatches = 17
+[kairo-qemu]   COUNTER prefetch_deadline_hits = 12
+[kairo-qemu]   COUNTER prefetch_budget_skips = 3
+[kairo-qemu]   COUNTER prefill_dispatches = 5
+[kairo-qemu]   COUNTER evict_dispatches = 8
+[kairo-qemu]   COUNTER normal_dispatches = 120
+[kairo-qemu]   COUNTER starvation_escapes = 1
+[kairo-qemu]   COUNTER hinted_requests = 28
+[kairo-qemu]   COUNTER unhinted_requests = 95
+[kairo-qemu]   COUNTER fairness_decode_budget_used = 85
+[kairo-qemu]   COUNTER fairness_prefetch_budget_used = 30
+[kairo-qemu]   COUNTER fairness_epoch_cycles = 1024
+[kairo-qemu]   COUNTER blkcg_iops_read = 4500
+[kairo-qemu]   COUNTER blkcg_iops_write = 1200
+[kairo-qemu]   COUNTER blkcg_latency_avg_us = 185
+[kairo-qemu]   COUNTER blkcg_token_deficit = 7
+[kairo-qemu]   COUNTER kv_region_hints = 15
+[kairo-qemu]   COUNTER kv_region_hits = 9
+[kairo-qemu]   COUNTER kv_region_misses = 6
+[kairo-qemu]   COUNTER eviction_total = 230
+[kairo-qemu]   COUNTER eviction_recomputed = 45
+[kairo-qemu]   COUNTER eviction_kv_cache = 60
+[kairo-qemu]   COUNTER eviction_model_local = 35
+[kairo-qemu]   COUNTER eviction_decode_hot = 20
+[kairo-qemu]   COUNTER eviction_session_private = 15
+[kairo-qemu]   COUNTER eviction_persistent = 40
+[kairo-qemu]   COUNTER eviction_other = 15
+[kairo-qemu]   COUNTER heat_scan_regions = 512
+[kairo-qemu]   COUNTER heat_active_regions = 87
+[kairo-qemu]   COUNTER heat_cold_regions = 340
+[kairo-qemu]   COUNTER heat_frozen_regions = 85
+[kairo-qemu]   COUNTER heat_reheat_count = 22
+[kairo-qemu]   COUNTER heat_age_decay_count = 156
+[kairo-qemu]   COUNTER heat_promotions = 14
+[kairo-qemu]   COUNTER heat_demotions = 31
+[kairo-qemu]   COUNTER admit_accepted = 180
+[kairo-qemu]   COUNTER admit_rejected_recompute = 25
+[kairo-qemu]   COUNTER admit_rejected_lifetime = 12
+[kairo-qemu]   COUNTER admit_rejected_flash_pressure = 8
+[kairo-qemu]   COUNTER admit_rejected_reuse = 15
+[kairo-qemu]   COUNTER admit_rejected_policy = 5
+[kairo-qemu]   COUNTER admit_promoted = 10
+[kairo-qemu]   COUNTER admit_demoted = 6
+[kairo-qemu] === COUNTER CHECK RESULT === found=44 missing=0
+[kairo-qemu] kairo_bench found, running smoke test...
+[kairo-qemu] kairo_bench exit code: 0
+[kairo-qemu] === KAIRO QEMU VALIDATION COMPLETE === PASS:44 FAIL:0

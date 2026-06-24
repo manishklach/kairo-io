@@ -1,0 +1,23 @@
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+
+
+iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7EFCAB90+7EF0AB90 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from ROM..c[?7l[2J[0m.[    2.295606] fail to initialize ptp_kvm
+[    2.862506] Failed to execute /init (error -2)
+[    2.879925] Kernel panic - not syncing: No working init found.  Try passing init= option to kernel. See Linux Documentation/admin-guide/init.rst for guidance.
+[    2.920075] CPU: 0 PID: 1 Comm: swapper/0 Not tainted 6.8.12 #2
+[    2.935068] Hardware name: QEMU Standard PC (Q35 + ICH9, 2009), BIOS 1.16.3-debian-1.16.3-2 04/01/2014
+[    2.959472] Call Trace:
+[    2.966111]  <TASK>
+[    2.971511]  panic+0x31d/0x350
+[    2.979392]  ? __pfx_kernel_init+0x10/0x10
+[    2.991720]  kernel_init+0x164/0x1b0
+[    3.000378]  ret_from_fork+0x2f/0x50
+[    3.010966]  ? __pfx_kernel_init+0x10/0x10
+[    3.027412]  ret_from_fork_asm+0x1b/0x30
+[    3.038722]  </TASK>
+[    3.047451] Kernel Offset: 0x25000000 from 0xffffffff81000000 (relocation range: 0xffffffff80000000-0xffffffffbfffffff)
+[    3.077218] Rebooting in 1 seconds..

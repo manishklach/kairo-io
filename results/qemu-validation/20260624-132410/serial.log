@@ -1,0 +1,172 @@
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+
+
+iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7EFCAB90+7EF0AB90 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from ROM..c[?7l[2J[0m.[    2.404345] fail to initialize ptp_kvm
+[kairo-qemu] init started (static binary)
+[kairo-qemu] kernel: 
+Linux version 6.8.12 (manishkl@MATARANI) (gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #2 SMP PREEMPT_DYNAMIC Wed Jun 24 13:10:44 PDT 2026
+[kairo-qemu] loading kairo_validation_mod.ko...
+[kairo-qemu]   module loaded via finit_module
+[kairo-qemu] Checking Kairo sysfs counters...
+[kairo-qemu]   COUNTER decode_dispatches = 42
+[kairo-qemu]   COUNTER prefetch_dispatches = 17
+[kairo-qemu]   COUNTER prefetch_deadline_hits = 12
+[kairo-qemu]   COUNTER prefetch_budget_skips = 3
+[kairo-qemu]   COUNTER prefill_dispatches = 5
+[kairo-qemu]   COUNTER evict_dispatches = 8
+[kairo-qemu]   COUNTER normal_dispatches = 120
+[kairo-qemu]   COUNTER starvation_escapes = 1
+[kairo-qemu]   COUNTER hinted_requests = 28
+[kairo-qemu]   COUNTER unhinted_requests = 95
+[kairo-qemu]   COUNTER fairness_decode_budget_used = 85
+[kairo-qemu]   COUNTER fairness_prefetch_budget_used = 30
+[kairo-qemu]   COUNTER fairness_epoch_cycles = 1024
+[kairo-qemu]   COUNTER blkcg_iops_read = 4500
+[kairo-qemu]   COUNTER blkcg_iops_write = 1200
+[kairo-qemu]   COUNTER blkcg_latency_avg_us = 185
+[kairo-qemu]   COUNTER blkcg_token_deficit = 7
+[kairo-qemu]   COUNTER kv_region_hints = 15
+[kairo-qemu]   COUNTER kv_region_hits = 9
+[kairo-qemu]   COUNTER kv_region_misses = 6
+[kairo-qemu]   COUNTER eviction_total = 230
+[kairo-qemu]   COUNTER eviction_recomputed = 45
+[kairo-qemu]   COUNTER eviction_kv_cache = 60
+[kairo-qemu]   COUNTER eviction_model_local = 35
+[kairo-qemu]   COUNTER eviction_decode_hot = 20
+[kairo-qemu]   COUNTER eviction_session_private = 15
+[kairo-qemu]   COUNTER eviction_persistent = 40
+[kairo-qemu]   COUNTER eviction_other = 15
+[kairo-qemu]   COUNTER heat_scan_regions = 512
+[kairo-qemu]   COUNTER heat_active_regions = 87
+[kairo-qemu]   COUNTER heat_cold_regions = 340
+[kairo-qemu]   COUNTER heat_frozen_regions = 85
+[kairo-qemu]   COUNTER heat_reheat_count = 22
+[kairo-qemu]   COUNTER heat_age_decay_count = 156
+[kairo-qemu]   COUNTER heat_promotions = 14
+[kairo-qemu]   COUNTER heat_demotions = 31
+[kairo-qemu]   COUNTER admit_accepted = 180
+[kairo-qemu]   COUNTER admit_rejected_recompute = 25
+[kairo-qemu]   COUNTER admit_rejected_lifetime = 12
+[kairo-qemu]   COUNTER admit_rejected_flash_pressure = 8
+[kairo-qemu]   COUNTER admit_rejected_reuse = 15
+[kairo-qemu]   COUNTER admit_rejected_policy = 5
+[kairo-qemu]   COUNTER admit_promoted = 10
+[kairo-qemu]   COUNTER admit_demoted = 6
+[kairo-qemu] === COUNTER CHECK RESULT === found=44 missing=0
+[kairo-qemu] kairo_bench found, running smoke test...
+[kairo-qemu] kairo_bench exit code: 0
+warning: unknown kv-region-type '1', using none
+kairo_bench summary
+file=/tmp/kairo_test.bin
+mode=mixed
+hint_mode=ioprio
+semantic_mode=normal
+access_pattern=random
+stride_blocks=16
+cluster_size_blocks=8
+fragment_size_bytes=0
+block_size_bytes=1048576
+sessions=1
+models=1
+decode_threads=1
+prefetch_threads=1
+write_threads=1
+evict_threads=0
+cache_pools=1
+placement_groups=1
+lifetime=none
+recompute_ok=0
+fixed_model_id=0
+fixed_session_id=0
+fixed_cache_pool_id=0
+fixed_placement_group=0
+noisy_session=0
+noisy_model=0
+noisy_multiplier=0
+fairness_mode=none
+kv_region_id=0
+kv_region_type=none
+kv_region_count=10
+kv_region_size=4194304
+registered_buffer_mode=none
+eviction_policy=none
+eviction_recompute_ok=0
+eviction_lifetime=none
+eviction_score_model=low
+eviction_pressure=0
+heatmap_mode=none
+hot_region_ratio=50
+region_reuse_ratio=50
+cold_region_ratio=10
+kv_heat_hot=0
+kv_heat_warm=6
+kv_heat_cold=10
+kv_heat_evictable=0
+kv_heat_protected=0
+admission_mode=none
+expected_reuse=3
+expected_lifetime_ms=3000
+recompute_cost_us=100
+flash_pressure=0
+admission_decision=accept
+backend_mode=none
+backend_class=KAIRO_BACKEND_NONE
+stream_id=0
+stream_id_span=none
+fdp_placement_id=0
+fdp_placement_span=none
+zone_hint=0
+backend_noop_fallback=true
+decode_total_reads=2178
+prefetch_total_reads=2120
+write_total_ops=509
+evict_total_ops=0
+decode_avg_us=2259.33
+decode_p50_us=2645.58
+decode_p95_us=4711.61
+decode_p99_us=6525.74
+decode_max_us=12955.27
+decode_read_MBps=435.60
+prefetch_read_MBps=424.00
+write_MBps=101.80
+evict_MBps=0.00
+decode_lat_0_10us=0
+decode_lat_10_25us=0
+decode_lat_25_50us=0
+decode_lat_50_100us=0
+decode_lat_100_250us=0
+decode_lat_250_500us=52
+decode_lat_500_1000us=647
+decode_lat_1ms_2ms=221
+decode_lat_2ms_5ms=1186
+decode_lat_gt_5ms=72
+ioprio_decode_ok=1
+ioprio_decode_fail=0
+ioprio_prefetch_ok=1
+ioprio_prefetch_fail=0
+ioprio_write_ok=1
+ioprio_write_fail=0
+rwf_decode_attempts=0
+rwf_decode_fail=0
+rwf_prefetch_attempts=0
+rwf_prefetch_fail=0
+rwf_prefill_attempts=0
+rwf_prefill_fail=0
+rwf_ephemeral_attempts=0
+rwf_ephemeral_fail=0
+rwf_recompute_attempts=0
+rwf_recompute_fail=0
+rwf_no_durability_attempts=0
+rwf_no_durability_fail=0
+rwf_avoid_pagecache_attempts=0
+rwf_avoid_pagecache_fail=0
+controller_feedback_mode=none
+controller_latency_samples=0
+controller_missing_timestamp=0
+todo=replace pthread pread/pwrite path with io_uring worker path
+[kairo-qemu] === KAIRO QEMU VALIDATION COMPLETE === PASS:44 FAIL:0
+[   10.939195] reboot: Power down

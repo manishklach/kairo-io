@@ -1,0 +1,40 @@
+[kairo-qemu] Applying Kairo patches...
+[kairo-qemu] Generating kernel config...
+  HOSTCC  scripts/basic/fixdep
+  HOSTCC  scripts/kconfig/conf.o
+  HOSTCC  scripts/kconfig/confdata.o
+  HOSTCC  scripts/kconfig/expr.o
+  LEX     scripts/kconfig/lexer.lex.c
+  YACC    scripts/kconfig/parser.tab.[ch]
+  HOSTCC  scripts/kconfig/lexer.lex.o
+  HOSTCC  scripts/kconfig/menu.o
+  HOSTCC  scripts/kconfig/parser.tab.o
+  HOSTCC  scripts/kconfig/preprocess.o
+  HOSTCC  scripts/kconfig/symbol.o
+  HOSTCC  scripts/kconfig/util.o
+  HOSTLD  scripts/kconfig/conf
+*** Default configuration is based on 'x86_64_defconfig'
+#
+# configuration written to .config
+#
+[kairo-qemu] Building kernel with 8 jobs...
+  CC      drivers/gpu/drm/i915/display/intel_qp_tables.o
+  CC      drivers/gpu/drm/i915/display/intel_sdvo.o
+  CC      drivers/gpu/drm/i915/display/intel_snps_phy.o
+  CC      drivers/gpu/drm/i915/display/intel_tv.o
+  CC      drivers/gpu/drm/i915/display/intel_vdsc.o
+  CC      drivers/gpu/drm/i915/display/intel_vrr.o
+  CC      drivers/gpu/drm/i915/display/vlv_dsi.o
+  CC      drivers/gpu/drm/i915/display/vlv_dsi_pll.o
+  CC      drivers/gpu/drm/i915/i915_perf.o
+  CC      drivers/gpu/drm/i915/pxp/intel_pxp.o
+  CC      drivers/gpu/drm/i915/pxp/intel_pxp_huc.o
+  CC      drivers/gpu/drm/i915/pxp/intel_pxp_tee.o
+  CC      drivers/gpu/drm/i915/i915_gpu_error.o
+  CC      drivers/gpu/drm/i915/i915_vgpu.o
+  AR      drivers/gpu/drm/i915/built-in.a
+  AR      drivers/gpu/drm/built-in.a
+  AR      drivers/gpu/built-in.a
+  AR      drivers/built-in.a
+make[1]: *** [/mnt/c/Users/ManishKL/Documents/Playground/kv-io/.linux-6.8/Makefile:1921: .] Error 2
+make: *** [Makefile:240: __sub-make] Error 2
