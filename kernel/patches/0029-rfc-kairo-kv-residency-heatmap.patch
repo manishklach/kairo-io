@@ -1,0 +1,588 @@
+From: Kairo Authors <kairo@research>
+Date: Wed Jun 24 20:00:00 2026 +0000
+Subject: [RFC/POC] 0029: KV residency heatmap scaffold
+
+RFC/POC — Not for LKML submission.
+
+Add a conceptual KV-cache residency heatmap that tracks per-region
+access frequency, recency, and classification (hot/warm/cold/evictable/
+protected).  The heatmap enables the kernel storage stack to make
+informed caching and eviction decisions based on actual I/O patterns.
+
+AI runtimes (vLLM, TensorRT-LLM, SGLang) exhibit strong temporal
+locality in KV-cache access — some regions are decode-hot (frequently
+read), some are warm (periodic prefetch), and many are cold or
+evictable (stale session data).  Today this access dynamics is
+invisible to the kernel.
+
+This patch adds:
+
+  enum kairo_kv_heat_class
+    KAIRO_KV_HEAT_UNKNOWN
+    KAIRO_KV_HEAT_HOT
+    KAIRO_KV_HEAT_WARM
+    KAIRO_KV_HEAT_COLD
+    KAIRO_KV_HEAT_EVICTABLE
+    KAIRO_KV_HEAT_PROTECTED
+
+  struct kairo_kv_heatmap_entry
+    valid, region_id, model_id, session_id, cache_pool_id,
+    placement_group, start_sector, nr_sectors, heat_class,
+    decode_reads, prefetch_reads, prefill_writes, evictions,
+    last_decode_ns, last_prefetch_ns, last_write_ns,
+    recompute_ok, persistent, protected_region, heat_score
+
+  struct kairo_kv_heatmap
+    enabled, nr_regions, decay_interval_ns, last_decay_ns,
+    regions[KAIRO_KV_HEATMAP_MAX_REGIONS], hits, misses,
+    updates, decays, evictable_regions, protected_regions
+
+  KAIRO_KV_HEATMAP_MAX_REGIONS fixed at 1024 (RFC/POC only).
+
+Conceptual helpers (all static inline __maybe_unused no-ops):
+
+  kairo_kv_heatmap_lookup(struct request *rq)
+  kairo_kv_heatmap_account_decode(struct request *rq)
+  kairo_kv_heatmap_account_prefetch(struct request *rq)
+  kairo_kv_heatmap_account_write(struct request *rq)
+  kairo_kv_heatmap_account_eviction(struct request *rq)
+  kairo_kv_heatmap_decay(struct kairo_kv_heatmap *map, u64 now_ns)
+  kairo_kv_heatmap_classify(const struct kairo_kv_heatmap_entry *entry)
+  kairo_kv_heatmap_region_evictable(
+      const struct kairo_kv_heatmap_entry *entry)
+
+Heat scoring policy (RFC heuristic):
+
+   decode read hit             +20
+   prefetch read hit           +5
+   prefill write               +2
+   eviction candidate check    -5
+   age decay                   -10 per interval
+   recompute_ok                lowers protection
+   persistent                  strong protection
+
+Classification thresholds:
+
+   score >= 100       HOT
+   score >= 40        WARM
+   score >= 1         COLD
+   score <= 0 and recompute_ok  EVICTABLE
+   persistent         PROTECTED
+
+Integration points (documented in comments):
+
+   Stage 17: KV region hints provide the region topology.
+   Stage 18: eviction policy consumes heat class.
+   Stage 13/14: decode latency feedback influences decay rate.
+   Stage 12/15: fairness weights influence per-session heat.
+   Stage 7: backend mapping uses heat for placement hints.
+
+Sysfs counters (defined but not wired to any kobject):
+
+   kairo_kv_heatmap_hits
+   kairo_kv_heatmap_misses
+   kairo_kv_heatmap_updates
+   kairo_kv_heatmap_decays
+   kairo_kv_heatmap_hot_regions
+   kairo_kv_heatmap_warm_regions
+   kairo_kv_heatmap_cold_regions
+   kairo_kv_heatmap_evictable_regions
+   kairo_kv_heatmap_protected_regions
+
+CONCEPTUAL-HOOK: No dispatch-path integration, no sysfs registration,
+no runtime heatmap state.  The heatmap model is defined for RFC review
+and benchmark-driven policy exploration.
+
+LINUX-6.8-CHECK:
+  block/blk-mq.c:          blk_mq_rq_ctx_init, blk_mq_dispatch_rq
+  block/blk-core.c:        generic_make_request
+  include/linux/blk-mq.h:  struct request (no kairo_hints field)
+
+Signed-off-by: Kairo Authors <kairo@research>
+---
+ include/linux/blk-mq.h | 312 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ block/blk-mq.c         |  94 +++++++++++++++
+ 2 files changed, 404 insertions(+), 2 deletions(-)
+
+diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
+index c3d4e5f..g6h7i8j 100755
+--- a/include/linux/blk-mq.h
++++ b/include/linux/blk-mq.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 */
+ /*
+- * Copyright (C) 2024-2026 Kairo Authors
++ * Copyright (C) 2024-2026 Kairo Authors
+  *
+  * This is experimental RFC/POC code. Not for LKML submission.
+  */
+@@ -25,6 +25,316 @@
+ #include <linux/sbitmap.h>
+
+ /*
++ * Kairo KV-cache residency heatmap
++ *
++ * Tracks per-region access frequency and recency for KV-cache data.
++ * Regions are classified as hot, warm, cold, evictable, or protected
++ * based on a simple heat score that accounts for decode reads,
++ * prefetch reads, writes, eviction checks, and age decay.
++ *
++ * The heatmap is a fixed-array linear scan (RFC/POC only).  It does
++ * not claim production scalability or correctness.
++ *
++ * CONCEPTUAL-HOOK: No dispatch path integrates the heatmap helpers.
++ * The structs and helpers are defined for RFC review and benchmark
++ * modeling.
++ */
++
++/*
++ * Maximum number of tracked KV-cache regions.  Fixed for RFC/POC.
++ * Real production would use a dynamic data structure (radix tree or
++ * hash table keyed by (model_id, session_id, start_sector)).
++ */
++#define KAIRO_KV_HEATMAP_MAX_REGIONS 1024
++
++/*
++ * KV-cache heat classification.
++ *
++ * HOT    - Frequently decoded; must not be evicted.
++ * WARM   - Periodically accessed; may be prefetched.
++ * COLD   - Rarely accessed; eligible for eviction with care.
++ * EVICTABLE - Safe to evict (cold + recompute_ok).
++ * PROTECTED - Persistent / durable; avoid eviction.
++ */
++enum kairo_kv_heat_class {
++	KAIRO_KV_HEAT_UNKNOWN = 0,
++	KAIRO_KV_HEAT_HOT,
++	KAIRO_KV_HEAT_WARM,
++	KAIRO_KV_HEAT_COLD,
++	KAIRO_KV_HEAT_EVICTABLE,
++	KAIRO_KV_HEAT_PROTECTED,
++};
++
++/*
++ * struct kairo_kv_heatmap_entry
++ *
++ * Tracks I/O access counts, last-access timestamps, and derived
++ * heat classification for a single KV-cache region.
++ */
++struct kairo_kv_heatmap_entry {
++	u32 valid;
++	u32 region_id;
++	u32 model_id;
++	u32 session_id;
++	u32 cache_pool_id;
++	u32 placement_group;
++
++	u64 start_sector;
++	u64 nr_sectors;
++
++	enum kairo_kv_heat_class heat_class;
++
++	u64 decode_reads;
++	u64 prefetch_reads;
++	u64 prefill_writes;
++	u64 evictions;
++
++	u64 last_decode_ns;
++	u64 last_prefetch_ns;
++	u64 last_write_ns;
++
++	bool recompute_ok;
++	bool persistent;
++	bool protected_region;
++
++	u64 heat_score;
++};
++
++/*
++ * struct kairo_kv_heatmap
++ *
++ * Top-level heatmap state.  Contains a fixed-size array of region
++ * entries, aggregation counters, and decay timing.
++ */
++struct kairo_kv_heatmap {
++	bool enabled;
++	u32 nr_regions;
++	u64 decay_interval_ns;
++	u64 last_decay_ns;
++
++	struct kairo_kv_heatmap_entry regions[KAIRO_KV_HEATMAP_MAX_REGIONS];
++
++	u64 hits;
++	u64 misses;
++	u64 updates;
++	u64 decays;
++	u64 evictable_regions;
++	u64 protected_regions;
++};
++
++/*
++ * Heat scoring policy (RFC heuristic)
++ *
++ * Each access type contributes to or subtracts from the heat score:
++ *
++ *   decode read hit             +20
++ *   prefetch read hit           +5
++ *   prefill write               +2
++ *   eviction candidate check    -5
++ *   age decay                   -10 per interval
++ *
++ * Classification thresholds (based on score):
++ *
++ *   score >= 100       HOT
++ *   score >= 40        WARM
++ *   score >= 1         COLD
++ *   score <= 0 and recompute_ok  EVICTABLE
++ *   persistent         PROTECTED (overrides score)
++ *
++ * These thresholds are RFC values.  Real production tuning would
++ * require workload-specific measurement.
++ */
++#define KAIRO_KV_HEAT_DECODE_READ_WEIGHT	20ULL
++#define KAIRO_KV_HEAT_PREFETCH_READ_WEIGHT	5ULL
++#define KAIRO_KV_HEAT_PREFILL_WRITE_WEIGHT	2ULL
++#define KAIRO_KV_HEAT_EVICT_CHECK_PENALTY	5ULL
++#define KAIRO_KV_HEAT_DECAY_PENALTY		10ULL
++#define KAIRO_KV_HEAT_HOT_THRESHOLD		100ULL
++#define KAIRO_KV_HEAT_WARM_THRESHOLD		40ULL
++#define KAIRO_KV_HEAT_COLD_THRESHOLD		1ULL
++
++/*
++ * Look up a heatmap entry by request metadata.
++ *
++ * Uses a fixed-array linear scan keyed by (model_id, session_id,
++ * start_sector).  Returns NULL on miss.
++ *
++ * CONCEPTUAL-HOOK: Not called from any dispatch path.
++ */
++static inline struct kairo_kv_heatmap_entry * __maybe_unused
++kairo_kv_heatmap_lookup(struct request *rq)
++{
++	/*
++	 * LINUX-6.8-CHECK: rq does not have a kairo_hints field or
++	 * heatmap pointer.  When it does, the logic would be:
++	 *
++	 * struct kairo_kv_heatmap *map = rq->q->kairo_heatmap;
++	 * u64 sector = blk_rq_pos(rq);
++	 * u32 model_id = rq->kairo_hints.model_id;
++	 * u32 session_id = rq->kairo_hints.session_id;
++	 *
++	 * if (!map || !map->enabled)
++	 *     return NULL;
++	 *
++	 * for (u32 i = 0; i < map->nr_regions; i++) {
++	 *     struct kairo_kv_heatmap_entry *e = &map->regions[i];
++	 *     if (e->valid &&
++	 *         e->model_id == model_id &&
++	 *         e->session_id == session_id &&
++	 *         sector >= e->start_sector &&
++	 *         sector < e->start_sector + e->nr_sectors) {
++	 *         map->hits++;
++	 *         return e;
++	 *     }
++	 * }
++	 *
++	 * map->misses++;
++	 */
++	(void)rq;
++	return NULL;
++}
++
++/*
++ * Account a decode read in the heatmap.
++ *
++ * Increments the decode read counter and heat score for the
++ * matching region entry.
++ */
++static inline void __maybe_unused
++kairo_kv_heatmap_account_decode(struct request *rq)
++{
++	struct kairo_kv_heatmap_entry *entry;
++
++	entry = kairo_kv_heatmap_lookup(rq);
++	if (!entry)
++		return;
++
++	entry->decode_reads++;
++	entry->last_decode_ns = ktime_get_ns();
++	entry->heat_score += KAIRO_KV_HEAT_DECODE_READ_WEIGHT;
++
++	/*
++	 * CONCEPTUAL-HOOK: Re-classify entry after update.
++	 * entry->heat_class = kairo_kv_heatmap_classify(entry);
++	 */
++	(void)rq;
++}
++
++/*
++ * Account a prefetch read in the heatmap.
++ */
++static inline void __maybe_unused
++kairo_kv_heatmap_account_prefetch(struct request *rq)
++{
++	struct kairo_kv_heatmap_entry *entry;
++
++	entry = kairo_kv_heatmap_lookup(rq);
++	if (!entry)
++		return;
++
++	entry->prefetch_reads++;
++	entry->last_prefetch_ns = ktime_get_ns();
++	entry->heat_score += KAIRO_KV_HEAT_PREFETCH_READ_WEIGHT;
++	(void)rq;
++}
++
++/*
++ * Account a prefill write in the heatmap.
++ */
++static inline void __maybe_unused
++kairo_kv_heatmap_account_write(struct request *rq)
++{
++	struct kairo_kv_heatmap_entry *entry;
++
++	entry = kairo_kv_heatmap_lookup(rq);
++	if (!entry)
++		return;
++
++	entry->prefill_writes++;
++	entry->last_write_ns = ktime_get_ns();
++	entry->heat_score += KAIRO_KV_HEAT_PREFILL_WRITE_WEIGHT;
++	(void)rq;
++}
++
++/*
++ * Account an eviction check in the heatmap.
++ *
++ * Subtracts from the heat score to model the cost of eviction
++ * candidate scanning.
++ */
++static inline void __maybe_unused
++kairo_kv_heatmap_account_eviction(struct request *rq)
++{
++	struct kairo_kv_heatmap_entry *entry;
++
++	entry = kairo_kv_heatmap_lookup(rq);
++	if (!entry)
++		return;
++
++	entry->evictions++;
++	if (entry->heat_score >= KAIRO_KV_HEAT_EVICT_CHECK_PENALTY)
++		entry->heat_score -= KAIRO_KV_HEAT_EVICT_CHECK_PENALTY;
++	else
++		entry->heat_score = 0;
++	(void)rq;
++}
++
++/*
++ * Apply periodic heat decay to all tracked regions.
++ *
++ * Subtracts KAIRO_KV_HEAT_DECAY_PENALTY from each region's heat
++ * score (capped at 0) and re-classifies regions whose score has
++ * dropped below thresholds.
++ *
++ * CONCEPTUAL-HOOK: Would be called from a periodic timer or at
++ * I/O completion when enough time has elapsed since last decay.
++ */
++static inline void __maybe_unused
++kairo_kv_heatmap_decay(struct kairo_kv_heatmap *map, u64 now_ns)
++{
++	u32 i;
++
++	if (!map || !map->enabled)
++		return;
++
++	if (now_ns < map->last_decay_ns + map->decay_interval_ns)
++		return;
++
++	for (i = 0; i < map->nr_regions; i++) {
++		struct kairo_kv_heatmap_entry *e = &map->regions[i];
++
++		if (!e->valid)
++			continue;
++
++		if (e->heat_score >= KAIRO_KV_HEAT_DECAY_PENALTY)
++			e->heat_score -= KAIRO_KV_HEAT_DECAY_PENALTY;
++		else
++			e->heat_score = 0;
++
++		/*
++		 * CONCEPTUAL-HOOK: Re-classify after decay.
++		 * e->heat_class = kairo_kv_heatmap_classify(e);
++		 */
++	}
++
++	map->last_decay_ns = now_ns;
++	map->decays++;
++}
++
++/*
++ * Classify a heatmap entry based on its current score and metadata.
++ *
++ * PROTECTED overrides all other classifications for persistent data.
++ * EVICTABLE requires recompute_ok and score <= 0.
++ * HOT, WARM, COLD are determined by score thresholds.
++ */
++static inline enum kairo_kv_heat_class __maybe_unused
++kairo_kv_heatmap_classify(const struct kairo_kv_heatmap_entry *entry)
++{
++	if (!entry || !entry->valid)
++		return KAIRO_KV_HEAT_UNKNOWN;
++
++	if (entry->persistent || entry->protected_region)
++		return KAIRO_KV_HEAT_PROTECTED;
++
++	if (entry->heat_score >= KAIRO_KV_HEAT_HOT_THRESHOLD)
++		return KAIRO_KV_HEAT_HOT;
++	if (entry->heat_score >= KAIRO_KV_HEAT_WARM_THRESHOLD)
++		return KAIRO_KV_HEAT_WARM;
++	if (entry->heat_score >= KAIRO_KV_HEAT_COLD_THRESHOLD)
++		return KAIRO_KV_HEAT_COLD;
++	if (entry->recompute_ok)
++		return KAIRO_KV_HEAT_EVICTABLE;
++	return KAIRO_KV_HEAT_COLD;
++}
++
++/*
++ * Returns true if the entry is safe to evict.
++ *
++ * An entry is evictable if it is classified as EVICTABLE, or if it
++ * is COLD and recompute_ok is set.
++ */
++static inline bool __maybe_unused
++kairo_kv_heatmap_region_evictable(const struct kairo_kv_heatmap_entry *entry)
++{
++	if (!entry || !entry->valid)
++		return false;
++
++	if (entry->persistent || entry->protected_region)
++		return false;
++
++	if (entry->heat_class == KAIRO_KV_HEAT_EVICTABLE)
++		return true;
++
++	if (entry->heat_class == KAIRO_KV_HEAT_COLD && entry->recompute_ok)
++		return true;
++
++	return false;
++}
++
++/*
+  * Kairo eviction class model
+  *
+  * Defines the relative priority of cache data for eviction.  Higher
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index f7a8b9c..k9l0m1n 100755
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -25,6 +25,98 @@
+ #include "blk-mq.h"
+
+ /*
++ * Kairo KV residency heatmap integration points
++ *
++ * This section documents the conceptual hook sites where heatmap
++ * accounting would be integrated into the block-layer dispatch,
++ * completion, and periodic decay paths.
++ *
++ * CONCEPTUAL-HOOK: None of these call sites are wired.  The heatmap
++ * model is defined for RFC review and benchmark modeling only.
++ *
++ * Policy notes:
++ *
++ *   - Hot decode regions should not be evicted.
++ *   - Warm regions may be prefetched.
++ *   - Cold recomputable regions become eviction candidates.
++ *   - Protected/persistent regions avoid Kairo demotion.
++ *
++ * Hook candidates (LINUX-6.8-CHECK):
++ *
++ *   block/blk-mq.c
++ *     - blk_mq_complete_request():  Account decode/prefetch/write
++ *       in heatmap after I/O completion
++ *     - blk_mq_dispatch_rq():       Check heat class before
++ *       dispatching an eviction request
++ *
++ *   block/blk-core.c
++ *     - generic_make_request():     Heatmap lookup and classification
++ *       before bio submission; increment miss counter if region
++ *       not found
++ *
++ * Integration with other Kairo stages:
++ *
++ *   Stage 17  KV region hints        Region topology for heatmap
++ *   Stage 18  Eviction policy        Consumes heat class for scoring
++ *   Stage 13/14 Decode latency        Decay rate may be adjusted
++ *   Stage 12/15 Fairness             Per-session heat weighting
++ *   Stage 7   Backend mapping        Heat class guides placement
++ *
++ * Sysfs counters (documented):
++ *
++ *   kairo_kv_heatmap_hits
++ *   kairo_kv_heatmap_misses
++ *   kairo_kv_heatmap_updates
++ *   kairo_kv_heatmap_decays
++ *   kairo_kv_heatmap_hot_regions
++ *   kairo_kv_heatmap_warm_regions
++ *   kairo_kv_heatmap_cold_regions
++ *   kairo_kv_heatmap_evictable_regions
++ *   kairo_kv_heatmap_protected_regions
++ */
++
++#if 0
++/* Example conceptual call site in blk_mq_complete_request():
++ *
++ * if (rq->kairo_hints.io_class == KAIRO_CLASS_DECODE_READ)
++ *     kairo_kv_heatmap_account_decode(rq);
++ * else if (rq->kairo_hints.io_class == KAIRO_CLASS_PREFETCH_READ)
++ *     kairo_kv_heatmap_account_prefetch(rq);
++ * else if (rq->kairo_hints.io_class == KAIRO_CLASS_PREFILL_WRITE)
++ *     kairo_kv_heatmap_account_write(rq);
++ * else if (rq->kairo_hints.io_class == KAIRO_CLASS_EVICT)
++ *     kairo_kv_heatmap_account_eviction(rq);
++ *
++ * // Periodic decay on I/O completion (roughly every 100ms)
++ * if (rq->q->kairo_heatmap &&
++ *     ktime_get_ns() - rq->q->kairo_heatmap->last_decay_ns >=
++ *     rq->q->kairo_heatmap->decay_interval_ns)
++ *     kairo_kv_heatmap_decay(rq->q->kairo_heatmap, ktime_get_ns());
++ */
++
++/* Example conceptual call site in blk_mq_dispatch_rq():
++ *
++ * struct kairo_kv_heatmap_entry *entry;
++ *
++ * if (rq->kairo_hints.io_class == KAIRO_CLASS_EVICT) {
++ *     entry = kairo_kv_heatmap_lookup(rq);
++ *     if (entry && entry->heat_class == KAIRO_KV_HEAT_HOT) {
++ *         // Do not evict hot decode data
++ *         blk_mq_requeue_request(rq, false);
++ *         return BLK_STS_RESOURCE;
++ *     }
++ * }
++ */
++
++/* Example conceptual call site in blk_mq_rq_ctx_init():
++ *
++ * if (rq->q->kairo_heatmap && rq->q->kairo_heatmap->enabled) {
++ *     struct kairo_kv_heatmap_entry *entry;
++ *     entry = kairo_kv_heatmap_lookup(rq);
++ *     if (entry)
++ *         rq->kairo_heat_class = entry->heat_class;
++ * }
++ */
++#endif
++
++/*
+  * For fully allocated queues, the queue dying flag is set.  For
+  * partially allocated queues, we fail at the allocation point.
+  */
+@@ -739,4 +831,6 @@ static void blk_mq_rq_ctx_init(struct blk_mq_tags *tags,
+ 	u64_stats_init(&rq->kairo_stats.syncp);
+ 	/* CONCEPTUAL-HOOK: kairo_eviction_class_from_request(rq)
+ 	 * would be called here when kairo_hints is available. */
++	/* CONCEPTUAL-HOOK: kairo_kv_heatmap_lookup(rq) would be
++	 * called here when kairo_heatmap is available. */
+ }
+-- 
+2.45.1

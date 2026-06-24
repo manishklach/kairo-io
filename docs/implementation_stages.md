@@ -523,3 +523,46 @@ framework:
   - per-request access tracking for recency/decode-hot penalties
   - fairness-aware eviction (noisy session vs well-behaved session)
   - real starvation-escape mechanism for eviction
+
+## Stage 19
+
+- Broad RFC/POC patches involved: `0029`
+- Docs: `docs/stage19_kv_residency_heatmap.md`
+- User-space header: `include/kairo_hints.h` (heatmap mode enum, name helper)
+- Scripts:
+  - `scripts/run_stage19_kv_heatmap_experiment.sh`
+  - `scripts/parse_stage19_kv_heatmap_summary.py`
+- What should compile:
+  - `enum kairo_kv_heat_class` with 6 classes in `include/linux/blk-mq.h`
+  - `struct kairo_kv_heatmap_entry` with access counters, timestamps,
+    heat score, and classification
+  - `struct kairo_kv_heatmap` with fixed-array region table, decay
+    timing, aggregation counters
+  - 8 conceptual helpers: lookup, account_decode/account_prefetch/
+    account_write/account_eviction, decay, classify, region_evictable
+  - heat scoring policy with 4 weights and 3 thresholds
+  - 9 sysfs counters (hits, misses, updates, decays, hot/warm/cold/
+    evictable/protected regions)
+  - User-space `enum kairo_heatmap_mode` and name helper
+  - Benchmark `--heatmap-mode`, `--hot-region-ratio`,
+    `--region-reuse-ratio`, `--cold-region-ratio` options
+  - Benchmark output fields: `heatmap_mode`, `hot_region_ratio`,
+    `region_reuse_ratio`, `cold_region_ratio`, `kv_heat_hot`,
+    `kv_heat_warm`, `kv_heat_cold`, `kv_heat_evictable`,
+    `kv_heat_protected`
+- What should be measurable:
+  - conceptual KV-cache residency heatmap model
+  - six canonical experiment cases covering no-heatmap, hot-decode,
+    cold-recomputable, mixed-hot-cold, multisession, and
+    eviction-pressure-with-heatmap scenarios
+  - structured output under `results/stage19/<timestamp>/`
+  - parseable summary logs with CSV and pretty-printed tables
+  - benchmark models heat class counters based on config ratios
+- What is still RFC-only:
+  - dispatch-path heatmap accounting (CONCEPTUAL-HOOK)
+  - sysfs counter registration (no kobject for heatmap counters)
+  - periodic heat decay execution (no timer wired)
+  - fixed-array linear scan (not production-scalable)
+  - integration with Stage 17 KV region hints (conceptual only)
+  - decode-latency feedback to decay interval
+  - fairness-weighted per-session heat

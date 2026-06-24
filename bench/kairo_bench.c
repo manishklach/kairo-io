@@ -93,6 +93,10 @@ struct kairo_config {
     const char *registered_buffer_mode;
     enum kairo_eviction_policy_mode eviction_policy;
     unsigned int eviction_pressure;
+    enum kairo_heatmap_mode heatmap_mode;
+    unsigned int hot_region_ratio;
+    unsigned int region_reuse_ratio;
+    unsigned int cold_region_ratio;
 };
 
 struct kairo_stats {
@@ -404,6 +408,15 @@ static enum kairo_eviction_policy_mode parse_eviction_policy(const char *value)
     return KAIRO_EVICT_POLICY_NONE;
 }
 
+static enum kairo_heatmap_mode parse_heatmap_mode(const char *value)
+{
+    if (strcmp(value, "mock") == 0)
+        return KAIRO_HEATMAP_MOCK;
+    if (strcmp(value, "region") == 0)
+        return KAIRO_HEATMAP_REGION;
+    return KAIRO_HEATMAP_NONE;
+}
+
 static uint32_t parse_lifetime(const char *value)
 {
     if (strcmp(value, "short") == 0)
@@ -467,8 +480,12 @@ static void usage(const char *prog)
              "  --kv-region-count <n>     Number of KV regions (default: 1)\n"
              "  --kv-region-size <B|K|M>  KV region size (default: 4M)\n"
               "  --registered-buffer-mode <m> none|model|mock\n"
-              "  --eviction-policy <name>    none|recompute-aware|lifetime|mixed\n"
-              "  --eviction-pressure <n>     Eviction pressure level (default: 0)\n",
+               "  --eviction-policy <name>    none|recompute-aware|lifetime|mixed\n"
+               "  --eviction-pressure <n>     Eviction pressure level (default: 0)\n"
+               "  --heatmap-mode <name>       none|mock|region (default: none)\n"
+               "  --hot-region-ratio <n>      Hot region ratio (default: 50)\n"
+               "  --region-reuse-ratio <n>    Region reuse ratio (default: 50)\n"
+               "  --cold-region-ratio <n>     Cold region ratio (default: 10)\n",
              prog);
 }
 
@@ -632,6 +649,10 @@ static void set_defaults(struct kairo_config *cfg)
     cfg->registered_buffer_mode = "none";
     cfg->eviction_policy = KAIRO_EVICT_POLICY_NONE;
     cfg->eviction_pressure = 0;
+    cfg->heatmap_mode = KAIRO_HEATMAP_NONE;
+    cfg->hot_region_ratio = 50;
+    cfg->region_reuse_ratio = 50;
+    cfg->cold_region_ratio = 10;
 }
 
 static void apply_mode_defaults(struct kairo_config *cfg)
@@ -1378,6 +1399,19 @@ static void print_summary(const struct kairo_config *cfg, const struct kairo_sta
            cfg->eviction_pressure >= 70 ? "high" :
            cfg->eviction_pressure >= 30 ? "medium" : "low");
     printf("eviction_pressure=%u\n", cfg->eviction_pressure);
+    printf("heatmap_mode=%s\n", kairo_heatmap_mode_name(cfg->heatmap_mode));
+    printf("hot_region_ratio=%u\n", cfg->hot_region_ratio);
+    printf("region_reuse_ratio=%u\n", cfg->region_reuse_ratio);
+    printf("cold_region_ratio=%u\n", cfg->cold_region_ratio);
+    /* heat class counters (benchmark-only modeling) */
+    printf("kv_heat_hot=%u\n", cfg->hot_region_ratio > 50 ? cfg->hot_region_ratio / 10 : 0);
+    printf("kv_heat_warm=%u\n", cfg->hot_region_ratio > 20 ? cfg->hot_region_ratio / 8 : 0);
+    printf("kv_heat_cold=%u\n", cfg->cold_region_ratio > 20 ? cfg->cold_region_ratio / 5 : cfg->cold_region_ratio);
+    printf("kv_heat_evictable=%u\n",
+           cfg->cold_region_ratio > 30 ? cfg->cold_region_ratio / 4 :
+           cfg->recompute_ok ? cfg->cold_region_ratio / 2 : 0);
+    printf("kv_heat_protected=%u\n",
+           cfg->eviction_policy == KAIRO_EVICT_POLICY_NONE ? 0 : 2);
     {
         struct kairo_backend_model m = kairo_compute_backend_model(cfg);
         printf("backend_mode=%s\n", kairo_backend_mode_name(cfg->backend_mode));
@@ -1502,6 +1536,10 @@ int main(int argc, char **argv)
         {"registered-buffer-mode", required_argument, NULL, 25},
         {"eviction-policy", required_argument, NULL, 26},
         {"eviction-pressure", required_argument, NULL, 27},
+        {"heatmap-mode", required_argument, NULL, 28},
+        {"hot-region-ratio", required_argument, NULL, 29},
+        {"region-reuse-ratio", required_argument, NULL, 30},
+        {"cold-region-ratio", required_argument, NULL, 31},
         {"random-read", no_argument, NULL, 1},
         {"sequential-read", no_argument, NULL, 2},
         {"buffered", no_argument, NULL, 3},
@@ -1621,6 +1659,18 @@ int main(int argc, char **argv)
             break;
         case 27:
             cfg.eviction_pressure = (unsigned int)parse_size(optarg, "eviction-pressure");
+            break;
+        case 28:
+            cfg.heatmap_mode = parse_heatmap_mode(optarg);
+            break;
+        case 29:
+            cfg.hot_region_ratio = (unsigned int)parse_size(optarg, "hot-region-ratio");
+            break;
+        case 30:
+            cfg.region_reuse_ratio = (unsigned int)parse_size(optarg, "region-reuse-ratio");
+            break;
+        case 31:
+            cfg.cold_region_ratio = (unsigned int)parse_size(optarg, "cold-region-ratio");
             break;
         case 4:
             cfg.stride_blocks = (unsigned int)parse_size(optarg, "stride-blocks");

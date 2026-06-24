@@ -167,6 +167,28 @@ static inline const char *kairo_eviction_policy_name(enum kairo_eviction_policy_
 }
 
 /*
+ * Stage 19: KV residency heatmap modes (benchmark-only modeling)
+ */
+enum kairo_heatmap_mode {
+    KAIRO_HEATMAP_NONE = 0,
+    KAIRO_HEATMAP_MOCK,
+    KAIRO_HEATMAP_REGION,
+};
+
+static inline const char *kairo_heatmap_mode_name(enum kairo_heatmap_mode mode)
+{
+    switch (mode) {
+    case KAIRO_HEATMAP_MOCK:
+        return "mock";
+    case KAIRO_HEATMAP_REGION:
+        return "region";
+    case KAIRO_HEATMAP_NONE:
+    default:
+        return "none";
+    }
+}
+
+/*
  * Stage 17: io_uring KV region hint types (benchmark-only modeling)
  *
  * These mirror the kernel-side enum kairo_kv_region_type for use by

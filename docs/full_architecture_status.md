@@ -28,6 +28,7 @@
 | blk-cgroup AI I/O controller | `0026` | conceptual | blk-cgroup policy scaffold mapping Kairo request classes to cgroup-level I/O budgets; `enum kairo_blkg_policy_class`, `struct kairo_blkg_policy`, `struct kairo_blkg_stats`; 5 conceptual hooks; blkcg audit script; cgroup interface files documented only |
 | io_uring KV region hints | `0027` | conceptual | io_uring KV region hint scaffold modeling AI runtime memory regions as registered buffer/file tags; `enum kairo_kv_region_type`, `struct kairo_kv_region_hint`; 2 conceptual hooks; io_uring audit script; user-space region hint structs and benchmark flags |
 | Recompute-aware eviction scheduler | `0028` | conceptual | Eviction-class model and scoring scaffold for AI KV-cache data; `enum kairo_eviction_class`, `struct kairo_eviction_decision`; 5 conceptual helpers; 10 sysfs eviction counters; recompute-aware eviction scoring; benchmark eviction policy modeling |
+| KV residency heatmap | `0029` | conceptual | KV-cache residency heatmap tracking per-region access frequency and recency; `enum kairo_kv_heat_class`, `struct kairo_kv_heatmap_entry`, `struct kairo_kv_heatmap`; 8 conceptual helpers; heat scoring model; 9 sysfs heatmap counters; benchmark heatmap modeling |
 
 ## Stage 6.5 Status
 
@@ -252,6 +253,23 @@
 | Experiment harness | implemented | `run_stage18_recompute_eviction_experiment.sh` with six canonical cases |
 | Summary parser | implemented | `parse_stage18_recompute_eviction_summary.py` with CSV/pretty output |
 | Stage 18 documentation | implemented | `docs/stage18_recompute_aware_eviction.md` |
+
+## Stage 19 Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Heat class enum | scaffolded | `enum kairo_kv_heat_class` with 6 classes in blk-mq.h |
+| Heatmap entry struct | scaffolded | `struct kairo_kv_heatmap_entry` with access counters, timestamps, score |
+| Heatmap struct | scaffolded | `struct kairo_kv_heatmap` with fixed-array, decay timing, aggregation |
+| Conceptual helpers | scaffolded | 8 helpers — all no-ops, not called from dispatch path |
+| Heat scoring policy | scaffolded | 4 weights (decode +20, prefetch +5, write +2, evict -5), decay -10/interval |
+| Classification thresholds | scaffolded | HOT >= 100, WARM >= 40, COLD >= 1, EVICTABLE <= 0 + recompute, PROTECTED = persistent |
+| Sysfs counters | documented | 9 counters in `collect_kairo_counters.sh`, no kobject |
+| User-space header | implemented | `kairo_hints.h`: `enum kairo_heatmap_mode`, name helper |
+| Benchmark heatmap flags | implemented | `--heatmap-mode`, `--hot-region-ratio`, `--region-reuse-ratio`, `--cold-region-ratio` |
+| Experiment harness | implemented | `run_stage19_kv_heatmap_experiment.sh` with six canonical cases |
+| Summary parser | implemented | `parse_stage19_kv_heatmap_summary.py` with CSV/pretty output; 6 heatmap counter delta fields |
+| Stage 19 documentation | implemented | `docs/stage19_kv_residency_heatmap.md` |
 
 ## Current Read
 

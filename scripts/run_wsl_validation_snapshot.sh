@@ -69,6 +69,7 @@ declare -A SUMMARY=(
   [stage16_dryrun]="missing_script"
   [stage17_dryrun]="missing_script"
   [stage18_dryrun]="missing_script"
+  [stage19_dryrun]="missing_script"
   [user_bench_baseline]="skipped"
   [user_bench_mixed]="skipped"
   [results_dir]="$RESULTS_DIR"
@@ -103,6 +104,7 @@ record_summary() {
     echo "stage16_dryrun=${SUMMARY[stage16_dryrun]}"
     echo "stage17_dryrun=${SUMMARY[stage17_dryrun]}"
     echo "stage18_dryrun=${SUMMARY[stage18_dryrun]}"
+    echo "stage19_dryrun=${SUMMARY[stage19_dryrun]}"
     echo "user_bench_baseline=${SUMMARY[user_bench_baseline]}"
     echo "user_bench_mixed=${SUMMARY[user_bench_mixed]}"
     echo "results_dir=${SUMMARY[results_dir]}"
@@ -265,6 +267,24 @@ if [[ -f "$REPO_ROOT/scripts/run_stage14_controller_feedback_experiment.sh" ]]; 
 else
   echo "run_stage14_controller_feedback_experiment.sh not found" > "$RESULTS_DIR/stage14_dryrun.log"
   SUMMARY[stage14_dryrun]="missing_script"
+fi
+
+# Stage 19 dry-run
+if [[ -f "$REPO_ROOT/scripts/run_stage19_kv_heatmap_experiment.sh" ]]; then
+  if $DRY_RUN; then
+    printf '%s\n' "./scripts/run_stage19_kv_heatmap_experiment.sh \"$TEST_FILE\" loop0 --skip-counters --dry-run --duration \"$DURATION\"" > "$RESULTS_DIR/stage19_dryrun.log"
+    SUMMARY[stage19_dryrun]="pass"
+  else
+    if run_logged "$RESULTS_DIR/stage19_dryrun.log" "$REPO_ROOT/scripts/run_stage19_kv_heatmap_experiment.sh" \
+      "$TEST_FILE" loop0 --skip-counters --dry-run --duration "$DURATION"; then
+      SUMMARY[stage19_dryrun]="pass"
+    else
+      SUMMARY[stage19_dryrun]="fail"
+    fi
+  fi
+else
+  echo "run_stage19_kv_heatmap_experiment.sh not found" > "$RESULTS_DIR/stage19_dryrun.log"
+  SUMMARY[stage19_dryrun]="missing_script"
 fi
 
 # Stage 18 dry-run

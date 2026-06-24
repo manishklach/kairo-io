@@ -168,6 +168,17 @@ counter_names=(
   kairo_eviction_decode_hot_deferred
   kairo_eviction_discard_preferred
   kairo_eviction_writeback_required
+
+  # Stage 19: KV residency heatmap counters (conceptual)
+  kairo_kv_heatmap_hits
+  kairo_kv_heatmap_misses
+  kairo_kv_heatmap_updates
+  kairo_kv_heatmap_decays
+  kairo_kv_heatmap_hot_regions
+  kairo_kv_heatmap_warm_regions
+  kairo_kv_heatmap_cold_regions
+  kairo_kv_heatmap_evictable_regions
+  kairo_kv_heatmap_protected_regions
 )
 
 for name in "${counter_names[@]}"; do

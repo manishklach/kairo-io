@@ -290,3 +290,51 @@ counters have no kobject registration.  Decode-latency feedback to eviction
 policy is documented but not wired.  Per-request access tracking does not
 exist.  Kernel-side eviction scoring is not claimed unless tested on a
 patched kernel with eviction counter collection.
+
+## Stage 19 KV Residency Heatmap Status
+
+Stage 19 (`0029`) adds a conceptual KV-cache residency heatmap scaffold:
+
+- **Heat class enum**: `enum kairo_kv_heat_class` with 6 classes
+  (UNKNOWN, HOT, WARM, COLD, EVICTABLE, PROTECTED) in
+  `include/linux/blk-mq.h`
+- **Heatmap entry**: `struct kairo_kv_heatmap_entry` tracking access
+  counters (decode_reads, prefetch_reads, prefill_writes, evictions),
+  last-access timestamps (last_decode_ns, last_prefetch_ns, last_write_ns),
+  heat score, and classification metadata
+- **Heatmap state**: `struct kairo_kv_heatmap` with a fixed-array region
+  table (`KAIRO_KV_HEATMAP_MAX_REGIONS = 1024`), decay timing, and
+  aggregation counters (hits, misses, updates, decays, evictable_regions,
+  protected_regions)
+- **Conceptual helpers**: 8 helpers — `kairo_kv_heatmap_lookup`,
+  `kairo_kv_heatmap_account_decode/prefetch/write/eviction`,
+  `kairo_kv_heatmap_decay`, `kairo_kv_heatmap_classify`,
+  `kairo_kv_heatmap_region_evictable` — all no-ops, not called from
+  any dispatch path
+- **Heat scoring policy**: decode read +20, prefetch read +5, prefill
+  write +2, eviction check -5, age decay -10 per interval; thresholds:
+  HOT >= 100, WARM >= 40, COLD >= 1, EVICTABLE <= 0 + recompute_ok,
+  PROTECTED = persistent
+- **Sysfs counters**: 9 counters documented in `collect_kairo_counters.sh`
+  — no kobject registration wired
+- **User-space header**: `include/kairo_hints.h` with
+  `enum kairo_heatmap_mode` and `kairo_heatmap_mode_name()` helper
+- **Benchmark flags**: `--heatmap-mode none|mock|region`,
+  `--hot-region-ratio N`, `--region-reuse-ratio N`,
+  `--cold-region-ratio N` with output fields `heatmap_mode`,
+  `hot_region_ratio`, `region_reuse_ratio`, `cold_region_ratio`,
+  `kv_heat_hot`, `kv_heat_warm`, `kv_heat_cold`, `kv_heat_evictable`,
+  `kv_heat_protected`
+- **Experiment harness**: `run_stage19_kv_heatmap_experiment.sh` with
+  six canonical cases under `results/stage19/<timestamp>/`
+- **Summary parser**: `parse_stage19_kv_heatmap_summary.py` with CSV
+  and pretty-printed output; 6 heatmap counter delta fields
+
+Stage 19 is **not** foundation-integrated, **not** LKML-ready, and **not**
+boot-validated.  No dispatch path calls the heatmap helpers.  Sysfs heatmap
+counters have no kobject registration.  The heatmap uses a fixed-array
+linear scan (RFC/POC only — not production-scalable).  Periodic heat decay
+is not wired to any timer.  Integration with Stage 17 KV region hints,
+Stage 13/14 decode latency feedback, and Stage 12/15 fairness is
+conceptual only.  Kernel-side heatmap accounting is not claimed unless
+tested on a patched kernel with heatmap counter collection.

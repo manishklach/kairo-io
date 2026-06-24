@@ -724,6 +724,53 @@ grep -qF "enum kairo_eviction_policy_mode" "$REPO_ROOT/include/kairo_hints.h" ||
 grep -qF "stage18_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
   fail "Stage 18: run_wsl_validation_snapshot.sh missing stage18_dryrun"
 
+# Stage 19: verify KV residency heatmap scaffold
+stage19_has_pattern() {
+  local file="$1" pattern="$2"
+  grep -qF -- "$pattern" "$file" || fail "Stage 19: missing pattern '$pattern' in $(basename "$file")"
+}
+
+stage19_file_exists() {
+  [[ -f "$1" ]] || fail "Stage 19: missing file: $1"
+}
+
+P29="$PATCH_DIR/0029-rfc-kairo-kv-residency-heatmap.patch"
+DOC19="$REPO_ROOT/docs/stage19_kv_residency_heatmap.md"
+R19SE="$REPO_ROOT/scripts/run_stage19_kv_heatmap_experiment.sh"
+P19SP="$REPO_ROOT/scripts/parse_stage19_kv_heatmap_summary.py"
+
+stage19_file_exists "$P29"
+stage19_file_exists "$DOC19"
+stage19_file_exists "$R19SE"
+stage19_file_exists "$P19SP"
+stage19_has_pattern "$P29" "enum kairo_kv_heat_class"
+stage19_has_pattern "$P29" "struct kairo_kv_heatmap_entry"
+stage19_has_pattern "$P29" "struct kairo_kv_heatmap"
+stage19_has_pattern "$P29" "kairo_kv_heatmap_lookup"
+stage19_has_pattern "$P29" "kairo_kv_heatmap_decay"
+stage19_has_pattern "$P29" "kairo_kv_heatmap_region_evictable"
+stage19_has_pattern "$DOC19" "KV Residency Heatmap"
+stage19_has_pattern "$R19SE" "results/stage19"
+stage19_has_pattern "$R19SE" "heatmap_mode"
+stage19_has_pattern "$P19SP" "--csv"
+stage19_has_pattern "$P19SP" "--pretty"
+
+# Verify collect_kairo_counters.sh has Stage 19 counters
+grep -qF "kairo_kv_heatmap_hits" "$REPO_ROOT/scripts/collect_kairo_counters.sh" || \
+  fail "Stage 19: collect_kairo_counters.sh missing kairo_kv_heatmap_hits"
+
+# Verify bench/kairo_bench.c supports --heatmap-mode
+grep -qF "heatmap-mode" "$REPO_ROOT/bench/kairo_bench.c" || \
+  fail "Stage 19: kairo_bench.c missing --heatmap-mode"
+
+# Verify include/kairo_hints.h has heatmap mode enum
+grep -qF "enum kairo_heatmap_mode" "$REPO_ROOT/include/kairo_hints.h" || \
+  fail "Stage 19: kairo_hints.h missing enum kairo_heatmap_mode"
+
+# Verify WSL validation includes stage19_dryrun
+grep -qF "stage19_dryrun" "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" || \
+  fail "Stage 19: run_wsl_validation_snapshot.sh missing stage19_dryrun"
+
 # Stage 9: verify WSL validation files
 [[ -f "$REPO_ROOT/scripts/check_wsl_environment.sh" ]] || fail "Stage 9: missing scripts/check_wsl_environment.sh"
 [[ -f "$REPO_ROOT/scripts/run_wsl_validation_snapshot.sh" ]] || fail "Stage 9: missing scripts/run_wsl_validation_snapshot.sh"
