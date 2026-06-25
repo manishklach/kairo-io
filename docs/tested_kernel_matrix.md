@@ -3,7 +3,7 @@
 | Kernel version | Foundation apply check | Foundation apply | Foundation symbol validation | `block/mq-deadline.o` build | `block/blk-mq.o` build | Boot tested | Sysfs visible | Counter movement | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Linux 6.8.12 | passed | passed | passed | passed | failed | pending | pending | pending | `scripts/validate_patch_stack.sh`, `apply_foundation_stack.sh`, and `validate_foundation_stack.sh` passed on the local `linux-6.8.12-min` tree. The direct patched `block/mq-deadline.o` build passed. The combined `block/blk-mq.o block/mq-deadline.o` path failed on local `blk-mq.o` `struct blk_plug` member errors that also reproduced outside the Kairo foundation path. |
-| Linux 6.8.12 + kairo_validation_mod.ko (QEMU TCG) | N/A | N/A | N/A | N/A | N/A | **passed** (20260624-132410) | **passed** (44/44 counters) | **passed** (bench smoke exit 0) | QEMU TCG guest boot with stock kernel + validation module. See `results/qemu-validation/20260624-132410/`. All 44 Kairo sysfs counters visible under `/sys/kernel/kairo/counters/`. kairo_bench smoke test passed with real throughput/latency metrics. |
+| Linux 6.8.12 + kairo_validation_mod.ko (QEMU TCG) | N/A | N/A | N/A | N/A | N/A | **passed** (20260624-132410) | **passed** (44/44 simulated counters) | simulated only | QEMU TCG guest boot with stock kernel + standalone validation module. See `results/qemu-validation/20260624-132410/`. This validates module/sysfs plumbing and guest benchmark execution on a stock kernel, not real Kairo-patched counter movement. |
 | Linux 6.8.x (additional trees) | pending | not run | not run | not run | not run | pending | pending | pending | add rows as local validation expands |
 
 ## WSL Validation Scope
@@ -33,11 +33,11 @@ verification pass:
 
 Stage 7.5 does not change foundation status or kernel compilation targets.
 
-## Patch 0010 Stage 8 Tracepoint Status
+## Patch 0017 Stage 8 Tracepoint Status
 
 Stage 8 (kernel observability and tracepoints) is an RFC/POC scaffold:
 
-- `kernel/patches/0010-rfc-kairo-tracepoints-observability.patch`
+- `kernel/patches/0017-rfc-kairo-tracepoints-observability.patch`
   defines 9 tracepoints in `include/trace/events/kairo.h`
 - Conceptual call sites in block and NVMe layers (not compile-validated)
 - bpftrace scripts, experiment harness, trace parser, and audit script

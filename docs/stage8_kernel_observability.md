@@ -127,7 +127,7 @@ bpftrace scripts/bpftrace/kairo_backend.bt
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| `0010-rfc-kairo-tracepoints-observability.patch` | patch | Adds tracepoint header, instrumentation stubs, and enum comments |
+| `0017-rfc-kairo-tracepoints-observability.patch` | patch | Adds tracepoint header, instrumentation stubs, and enum comments |
 | `include/trace/events/kairo.h` | new header | TRACE_EVENT definitions for 9 tracepoints |
 | `scripts/bpftrace/kairo_latency.bt` | bpftrace | Dispatch latency and byte-count tracking |
 | `scripts/bpftrace/kairo_dispatch.bt` | bpftrace | Scheduler decision breakdown |

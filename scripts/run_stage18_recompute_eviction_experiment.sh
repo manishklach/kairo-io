@@ -80,10 +80,6 @@ run_case() {
   mkdir -p "$case_dir"
   mkdir -p "$case_dir/counters-before" "$case_dir/counters-after"
 
-  cat > "$case_dir/command.txt" <<CMDEOL
-$0 "$FILE_PATH" "$BLOCK_DEV" --duration $DURATION --bench "$BENCH" --hint-mode "$HINT_MODE" --results-dir "$RESULTS_DIR"
-CMDEOL
-
   collect_counters "$case_label/counters-before"
 
   local bench_cmd
@@ -99,6 +95,9 @@ CMDEOL
     --recompute-ok)
 
   local summary_file="$case_dir/summary.log"
+  : > "$case_dir/command.txt"
+  printf '%q ' "${bench_cmd[@]}" >> "$case_dir/command.txt"
+  printf '\n' >> "$case_dir/command.txt"
 
   if $DRY_RUN; then
     printf '%s\n' "${bench_cmd[*]}" > "$summary_file"

@@ -40,9 +40,9 @@ QEMU: 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.16)
 - experiment harness dry-run path
 - WSL user-space benchmark smoke path
 - **QEMU guest kernel boot (Linux 6.8.12 on x86_64)**
-- **kairo_validation_mod.ko load and sysfs registration**
-- **44 Kairo sysfs counters across all 20 stages**
-- **kairo_bench smoke test on guest** (exit code 0, real throughput/latency metrics)
+- **kairo_validation_mod.ko load and sysfs registration on a stock kernel**
+- **44 simulated Kairo sysfs counters exposed by the standalone validation module**
+- **kairo_bench guest smoke test execution** (exit code 0; not proof of patched-kernel Stage 17-20 behavior)
 
 ## What This Does Not Validate
 

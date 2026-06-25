@@ -1,8 +1,9 @@
 # QEMU Boot Validation
 
 This document describes the Kairo QEMU boot validation infrastructure, which
-boots a Linux 6.8.12 kernel under QEMU, loads a Kairo sysfs validation kernel
-module, and verifies that all 44 Kairo counters are visible and readable.
+boots a Linux 6.8.12 kernel under QEMU, loads a standalone Kairo sysfs
+validation kernel module, and verifies that all 44 simulated counters are
+visible and readable.
 
 ## Motivation
 
@@ -18,9 +19,9 @@ While bare-metal validation remains the gold standard, QEMU boot validation
 provides a practical CI/development fallback that:
 
 - **Brings up a full Linux 6.8.12 kernel** under QEMU (TCG or KVM)
-- **Loads a Kairo sysfs module** that exposes all counters
-- **Verifies 44/44 counters** readable at `/sys/kernel/kairo/counters/`
-- **Runs kairo_bench** as a guest smoke test
+- **Loads a standalone Kairo sysfs module** that exposes simulated counters
+- **Verifies 44/44 simulated counters** readable at `/sys/kernel/kairo/counters/`
+- **Runs kairo_bench** as a guest smoke test with valid Stage 17-20 user-space flags
 - **Validates the entire user-space toolchain**: initramfs, module loading,
    sysfs traversal, benchmark execution, result parsing
 
@@ -65,7 +66,7 @@ provides a practical CI/development fallback that:
 
 | File | Purpose |
 |---|---|
-| `kernel/kairo_validation_mod.c` | Kernel module source (GPL-2.0) exposing all 44 counters via sysfs under `/sys/kernel/kairo/counters/`. Uses `struct kobj_attribute` with `KAIRO_VAL_ATTR` macro for each counter. |
+| `kernel/kairo_validation_mod.c` | Kernel module source (GPL-2.0) exposing all 44 simulated counters via sysfs under `/sys/kernel/kairo/counters/`. Uses `struct kobj_attribute` with `KAIRO_VAL_ATTR` macro for each counter. |
 | `kernel/kairo_validation_mod.ko` | Prebuilt 24K module for 6.8.12. Built against the stock kernel, no patching needed. |
 | `scripts/run_kairo_qemu_validation.sh` | Orchestrator: creates initramfs, launches QEMU, collects results. Options: `--linux-dir`, `--kernel`, `--mem`, `--jobs`, `--dry-run`. |
 | `scripts/kairo-qemu-init.sh` | Fallback init script for busybox-based initramfs (if static binary not compiled). |
@@ -109,7 +110,7 @@ Latest run: `results/qemu-validation/20260624-132410/`
 |---|---|
 | Kernel boot | PASS (Linux 6.8.12, 10s TCG boot) |
 | Module load (finit_module) | PASS |
-| Sysfs counters found | **44/44** |
+| Sysfs counters found | **44/44 simulated counters** |
 | kairo_bench smoke test | PASS (exit 0) |
 | Power off | PASS |
 
@@ -210,7 +211,8 @@ The initramfs is built fresh on every run and contains:
 - `counters/` — attribute group with all 44 counter files
 
 Each counter file is read-only (`0444`) and outputs a `%llu\n` formatted
-value. Demo values are seeded at module init to exercise all stages.
+value. Demo values are seeded at module init to exercise all stages. This is a
+sysfs-path validation aid, not evidence of real Kairo-patched scheduler state.
 
 ### QEMU Configuration
 

@@ -149,7 +149,7 @@ patched-kernel runtime validation.
 Latest snapshots:
 
 * [docs/validation_snapshot.md](docs/validation_snapshot.md) — WSL repo consistency + dry-runs
-* [docs/qemu_validation.md](docs/qemu_validation.md) — QEMU guest boot with sysfs counter validation (44/44)
+* [docs/qemu_validation.md](docs/qemu_validation.md) — QEMU stock-kernel module/sysfs validation (44/44 simulated counters)
 
 ---
 
@@ -588,7 +588,7 @@ Primary validation entry points:
 # WSL repo consistency + dry-run validation
 ./scripts/run_wsl_validation_snapshot.sh
 
-# QEMU guest boot with sysfs counter validation (44/44)
+# QEMU stock-kernel module/sysfs validation (44/44 simulated counters)
 ./scripts/run_kairo_qemu_validation.sh --kernel ~/linux-6.8/arch/x86_64/boot/bzImage --mem 2048
 ```
 ./scripts/validate_kairo_runtime.sh /mnt/nvme/kairo.test nvme0n1

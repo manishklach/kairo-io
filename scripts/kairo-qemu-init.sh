@@ -124,10 +124,10 @@ if [ -x /kairo_bench ]; then
   set +e
   /kairo_bench --file /tmp/kairo_test.bin --runtime 5 \
     --decode-threads 1 --prefetch-threads 1 --write-threads 1 \
-    --kv-region-id 0 --kv-region-type 1 --kv-region-count 10 \
-    --eviction-policy recompute_optimistic \
-    --heatmap-mode full_scan \
-    --admission-mode flash_backed \
+    --kv-region-id 0 --kv-region-type decode --kv-region-count 10 \
+    --eviction-policy recompute-aware \
+    --heatmap-mode region \
+    --admission-mode policy \
     > /tmp/bench_result.log 2>&1
   BENCH_EXIT=$?
   set -e

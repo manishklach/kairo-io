@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kairo — Part 2: Inside the Kernel Patch Stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a0d10;
+    --surface: #10151c;
+    --surface2: #161d27;
+    --border: #1e2d3d;
+    --accent: #00e5c3;
+    --accent2: #4f8ef7;
+    --accent3: #f7a24f;
+    --text: #c9d8e8;
+    --text-dim: #6a8099;
+    --text-bright: #eaf4ff;
+    --red: #ff4f6a;
+    --green: #00e5c3;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Lora', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.82;
+    min-height: 100vh;
+  }
+
+  /* Starfield noise */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 10% 20%, rgba(0,229,195,0.05) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 90% 80%, rgba(79,142,247,0.05) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---- Header ---- */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(10,13,16,0.88);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .site-header .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .site-header nav a {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    letter-spacing: 0.08em;
+    margin-left: 1.6rem;
+    transition: color 0.2s;
+  }
+  .site-header nav a:hover { color: var(--accent); }
+
+  /* ---- Hero ---- */
+  .hero {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 5rem 2rem 3rem;
+  }
+
+  .part-label {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(0,229,195,0.3);
+    border-radius: 2px;
+    padding: 0.25em 0.8em;
+    margin-bottom: 1.4rem;
+  }
+
+  .hero h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 5vw, 3.4rem);
+    line-height: 1.1;
+    color: var(--text-bright);
+    margin-bottom: 1.2rem;
+    letter-spacing: -0.01em;
+  }
+
+  .hero h1 span.hl { color: var(--accent); }
+  .hero h1 span.hl2 { color: var(--accent2); }
+
+  .hero .subtitle {
+    font-family: 'Lora', serif;
+    font-style: italic;
+    font-size: 1.05rem;
+    color: var(--text-dim);
+    max-width: 600px;
+    margin-bottom: 2rem;
+  }
+
+  .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+    flex-wrap: wrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    padding-bottom: 2.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .meta-row .dot { color: var(--border); }
+
+  .gh-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45em;
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid rgba(0,229,195,0.3);
+    border-radius: 3px;
+    padding: 0.2em 0.7em;
+    transition: background 0.2s, color 0.2s;
+  }
+  .gh-link:hover { background: rgba(0,229,195,0.08); }
+  .gh-link svg { width: 12px; height: 12px; fill: currentColor; flex-shrink: 0; }
+
+  /* ---- Main Layout ---- */
+  .layout {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 3rem 2rem 6rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* ---- Prose ---- */
+  .prose p {
+    margin-bottom: 1.5rem;
+    color: var(--text);
+  }
+
+  .prose h2 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.55rem;
+    color: var(--text-bright);
+    margin: 3rem 0 1rem;
+    letter-spacing: -0.01em;
+    position: relative;
+    padding-left: 1.2rem;
+  }
+
+  .prose h2::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 1.2em;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  .prose h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--accent2);
+    margin: 2rem 0 0.6rem;
+    letter-spacing: 0.01em;
+  }
+
+  .prose a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: rgba(0,229,195,0.3);
+    text-underline-offset: 3px;
+    transition: text-decoration-color 0.2s;
+  }
+  .prose a:hover { text-decoration-color: var(--accent); }
+
+  /* ---- Code blocks ---- */
+  pre, code {
+    font-family: 'DM Mono', monospace;
+  }
+
+  code {
+    background: rgba(0,229,195,0.07);
+    color: var(--accent);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+    font-size: 0.82em;
+  }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 1.4rem 1.6rem;
+    overflow-x: auto;
+    margin: 1.8rem 0;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    color: #a8c0d6;
+  }
+
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  /* ---- Architecture diagram ---- */
+  .arch-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 2rem 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.8;
+    color: var(--text);
+    overflow-x: auto;
+    position: relative;
+  }
+
+  .arch-diagram::before {
+    content: 'ARCHITECTURE';
+    position: absolute;
+    top: -1px;
+    left: 1.5rem;
+    background: var(--bg);
+    padding: 0 0.6rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    border-top: 2px solid var(--accent);
+  }
+
+  .arch-diagram .layer-ai    { color: #f7a24f; }
+  .arch-diagram .layer-user  { color: #4f8ef7; }
+  .arch-diagram .layer-kairo { color: #00e5c3; }
+  .arch-diagram .layer-nvme  { color: #c084fc; }
+
+  /* ---- Patch table ---- */
+  .patch-table-wrap {
+    overflow-x: auto;
+    margin: 2rem 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.77rem;
+  }
+
+  thead th {
+    background: var(--surface2);
+    color: var(--accent);
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(30,45,61,0.6);
+    transition: background 0.15s;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(0,229,195,0.03); }
+
+  tbody td {
+    padding: 0.65rem 1rem;
+    color: var(--text);
+    vertical-align: top;
+  }
+
+  tbody td:first-child {
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  tbody td:nth-child(2) {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+  }
+
+  tbody td:last-child {
+    color: var(--text);
+    font-family: 'Lora', serif;
+    font-size: 0.83rem;
+    line-height: 1.5;
+  }
+
+  /* ---- Callout boxes ---- */
+  .callout {
+    border-radius: 8px;
+    padding: 1.4rem 1.6rem;
+    margin: 2rem 0;
+    border-left: 3px solid;
+    position: relative;
+  }
+
+  .callout-info {
+    background: rgba(79,142,247,0.06);
+    border-color: var(--accent2);
+  }
+
+  .callout-warn {
+    background: rgba(247,162,79,0.06);
+    border-color: var(--accent3);
+  }
+
+  .callout-success {
+    background: rgba(0,229,195,0.06);
+    border-color: var(--accent);
+  }
+
+  .callout-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+
+  .callout-info .callout-label { color: var(--accent2); }
+  .callout-warn .callout-label { color: var(--accent3); }
+  .callout-success .callout-label { color: var(--accent); }
+
+  .callout p { margin: 0; color: var(--text); font-size: 0.95rem; }
+
+  /* ---- IO class badges ---- */
+  .io-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .io-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .io-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .io-card.decode::after   { background: var(--accent); }
+  .io-card.prefetch::after { background: var(--accent2); }
+  .io-card.prefill::after  { background: var(--accent3); }
+  .io-card.evict::after    { background: var(--red); }
+
+  .io-card .badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+
+  .decode .badge   { color: var(--accent); }
+  .prefetch .badge { color: var(--accent2); }
+  .prefill .badge  { color: var(--accent3); }
+  .evict .badge    { color: var(--red); }
+
+  .io-card .title {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 0.4rem;
+  }
+
+  .io-card p {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    line-height: 1.55;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ---- Stage timeline ---- */
+  .timeline {
+    position: relative;
+    margin: 2rem 0;
+    padding-left: 1.8rem;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.6rem;
+    bottom: 0.6rem;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--accent), var(--accent2), transparent);
+  }
+
+  .tl-item {
+    position: relative;
+    margin-bottom: 1.8rem;
+  }
+
+  .tl-item::before {
+    content: '';
+    position: absolute;
+    left: -1.8rem;
+    top: 0.55rem;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .tl-item .tl-head {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-bright);
+    margin-bottom: 0.25rem;
+  }
+
+  .tl-item .tl-patch {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+  }
+
+  .tl-item p {
+    font-size: 0.88rem;
+    color: var(--text-dim);
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* ---- Metrics section ---- */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1rem;
+    text-align: center;
+  }
+
+  .metric-card .metric-val {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.4rem;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .metric-card .metric-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* ---- Footer ---- */
+  .post-footer {
+    margin-top: 4rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .post-footer p {
+    font-size: 0.88rem;
+    color: var(--text-dim);
+    margin-bottom: 0.6rem;
+  }
+
+  .post-footer .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(0,229,195,0.1);
+    border: 1px solid rgba(0,229,195,0.4);
+    color: var(--accent);
+    text-decoration: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    padding: 0.6rem 1.2rem;
+    border-radius: 4px;
+    transition: background 0.2s;
+  }
+  .post-footer .cta:hover { background: rgba(0,229,195,0.18); }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 600px) {
+    .hero { padding: 3.5rem 1.2rem 2rem; }
+    .layout { padding: 2rem 1.2rem 4rem; }
+    .site-header nav { display: none; }
+  }
+
+  /* Fade-in */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero, .layout { animation: fadeUp 0.7s ease both; }
+  .layout { animation-delay: 0.15s; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <span class="logo">Kairo · I/O</span>
+  <nav>
+    <a href="#problem">Problem</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#patches">Patches</a>
+    <a href="#hints">Hints API</a>
+    <a href="#observability">Observability</a>
+    <a href="https://github.com/manishklach/kairo-io" target="_blank">GitHub ↗</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div class="part-label">Part 2 · Deep Dive</div>
+  <h1>
+    <span class="hl">Kairo</span> — Inside the<br/>
+    <span class="hl2">Kernel Patch Stack</span>
+  </h1>
+  <p class="subtitle">
+    A thorough walkthrough of how Kairo re-imagines Linux block I/O
+    to make NVMe storage inference-aware — patch by patch, stage by stage.
+  </p>
+  <div class="meta-row">
+    <span>June 2026</span>
+    <span class="dot">·</span>
+    <span>Systems Engineering</span>
+    <span class="dot">·</span>
+    <span>Linux Kernel · AI Inference · Storage</span>
+    <span class="dot">·</span>
+    <a class="gh-link" href="https://github.com/manishklach/kairo-io" target="_blank">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      manishklach/kairo-io
+    </a>
+  </div>
+</section>
+
+<main class="layout">
+<div class="prose">
+
+<!-- ===== RECAP ===== -->
+<h2>Recap: What Kairo Is Trying To Solve</h2>
+
+<p>
+  If you read Part 1, you know the setup. Kairo — <em>Kernel AI Runtime I/O</em> —
+  is an internal Linux RFC/POC that asks a deceptively simple question: what if
+  the block layer actually knew it was serving an LLM?
+</p>
+
+<p>
+  Today's Linux storage stack treats a decode read (the latency-critical I/O that
+  feeds the next token to the GPU) identically to a prefill write (background
+  cache population). Under mixed I/O pressure, decode p99 latency blows out and
+  the model stalls — not because the SSD is slow, but because the scheduler
+  doesn't know which request matters most.
+</p>
+
+<div class="callout callout-info">
+  <div class="callout-label">The Core Insight</div>
+  <p>
+    AI inference creates four distinct I/O classes with wildly different latency
+    sensitivity. Kairo exposes that structure to the Linux block layer so the
+    scheduler can act on it.
+  </p>
+</div>
+
+<!-- ===== THE FOUR CLASSES ===== -->
+<h2 id="problem">The Four I/O Classes</h2>
+
+<p>
+  Kairo's entire design stems from a taxonomy that most I/O schedulers ignore.
+  KV-cache traffic is large-block, read-dominant, and session-scoped — but not
+  all reads are created equal.
+</p>
+
+<div class="io-grid">
+  <div class="io-card decode">
+    <div class="badge">RT · prio 0</div>
+    <div class="title">Decode Read</div>
+    <p>Feeds the active inference step. Every microsecond matters. Must dispatch ahead of everything else.</p>
+  </div>
+  <div class="io-card prefetch">
+    <div class="badge">RT · prio 1</div>
+    <div class="title">Prefetch Read</div>
+    <p>Anticipatory cache load. Deadline-sensitive but can yield briefly to decode without harming quality.</p>
+  </div>
+  <div class="io-card prefill">
+    <div class="badge">BE · prio 7</div>
+    <div class="title">Prefill Write</div>
+    <p>Background KV-cache population. Throughput-oriented. Demoted under read pressure.</p>
+  </div>
+  <div class="io-card evict">
+    <div class="badge">DISCARD</div>
+    <div class="title">Eviction</div>
+    <p>Cache cleanup and punch-hole operations. Absolute lowest priority. Can wait.</p>
+  </div>
+</div>
+
+<p>
+  In Kairo's user-space header, <code>include/kairo_hints.h</code>, these map
+  directly to <code>ioprio</code> classes that flow down into the block layer.
+  The current implementation uses <code>IOPRIO_CLASS_RT</code> at priorities 0
+  and 1 for reads, and <code>IOPRIO_CLASS_BE</code> at priority 7 for prefill
+  writes. Eviction rides the discard path or a BE prio 6 fallback.
+</p>
+
+<!-- ===== ARCHITECTURE ===== -->
+<h2 id="architecture">The Four-Layer Stack</h2>
+
+<p>
+  Kairo inserts a new conceptual layer between the AI runtime and the generic
+  NVMe backend. Here's what that looks like:
+</p>
+
+<div class="arch-diagram">
+<pre class="layer-ai">
+┌─────────────────────────────────────────────────────┐
+│  AI Runtime / Synthetic Benchmark                   │
+│  · decode reads  · prefetch reads                   │
+│  · prefill writes  · eviction / discard             │
+└─────────────────────────────────────────────────────┘</pre>
+<pre class="layer-user">
+┌─────────────────────────────────────────────────────┐
+│  User-Space Hint Path                               │
+│  · io_uring + O_DIRECT + registered buffers         │
+│  · ioprio / model / session / lifetime hints        │
+│  · kairo_hints.h defines RWF_KAIRO_* flags          │
+└─────────────────────────────────────────────────────┘</pre>
+<pre class="layer-kairo">
+┌─────────────────────────────────────────────────────┐
+│  Kairo Block Layer                                  │
+│  · request classification (patch 0002 / 0010)       │
+│  · decode-critical fast path (patch 0001)           │
+│  · prefetch-aware scheduling (patch 0005)           │
+│  · prefill-write demotion (patch 0011)              │
+│  · large-block coalescing (patch 0004 / 0015)       │
+│  · placement / lifetime metadata (patch 0007)       │
+│  · BPF programmable dispatch (patch 0016)           │
+└─────────────────────────────────────────────────────┘</pre>
+<pre class="layer-nvme">
+┌─────────────────────────────────────────────────────┐
+│  Generic NVMe Backend                               │
+│  · mq-deadline extensions                           │
+│  · blk-mq metadata                                  │
+│  · optional ZNS / Streams / FDP mapping             │
+└─────────────────────────────────────────────────────┘</pre>
+</div>
+
+<p>
+  The beauty of this design is that each layer degrades gracefully. NVMe
+  Streams/FDP/ZNS hooks are feature-detected and fall back to no-ops on standard
+  SSDs. The <code>ioprio</code> signaling path works on any kernel running
+  <code>mq-deadline</code>.
+</p>
+
+<!-- ===== PATCH SERIES ===== -->
+<h2 id="patches">The Patch Series, Explained</h2>
+
+<p>
+  As of v0.1.0, Kairo carries 30 patches in <code>kernel/patches/</code>,
+  plus a foundation compile-targeted subset for Linux 6.8.x. Here's the full
+  picture, grouped by theme.
+</p>
+
+<h3>Foundation: Scheduling Core (Patches 0001–0005)</h3>
+
+<div class="timeline">
+  <div class="tl-item">
+    <div class="tl-patch">0001 · mq-deadline</div>
+    <div class="tl-head">Decode-Read Fast Path</div>
+    <p>The primary patch. Modifies <code>mq-deadline</code> to dispatch
+    decode-classified reads ahead of all other traffic. This is the core
+    proof point: reduce <code>decode_p99_us</code> under mixed write pressure.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0002 → 0010 · blk-mq</div>
+    <div class="tl-head">Request Classification</div>
+    <p>Introduces the five Kairo I/O classes and merge-instrumentation flags
+    in <code>blk-mq</code> headers. Patch 0010 hardens this with real
+    ioprio-to-class conversion at bio-to-request time, replacing the deferred
+    classification stub from 0002.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0003 · io_uring / fs / blk-mq</div>
+    <div class="tl-head">io_uring Hint Plumbing</div>
+    <p>Propagates Kairo intent from user-space through <code>kiocb</code>
+    into conceptual bio/request metadata. Enables future per-IO classification
+    via <code>IORING_SQE_KAIRO_CLASS</code> (patch 0014).</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0004 + 0015 · blk-merge</div>
+    <div class="tl-head">Large-Block Coalescing</div>
+    <p>KV-cache reads are large. Patch 0004 adds merge-bias helpers and
+    per-request merge flags. Patch 0015 fills in the real
+    <code>kairo_attempt_forced_merge()</code> implementation with safety
+    checks, bridging the scaffold to a working prototype.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0005 · mq-deadline</div>
+    <div class="tl-head">Separate Prefetch Deadlines</div>
+    <p>Gives prefetch reads their own urgency deadline, distinct from both
+    decode and write traffic. Prevents prefetch from being treated as
+    best-effort while still yielding to decode.</p>
+  </div>
+</div>
+
+<h3>Semantics & Placement (Patches 0006–0008)</h3>
+
+<p>
+  These patches move Kairo beyond scheduling hints into richer semantic metadata.
+</p>
+
+<div class="patch-table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Patch</th>
+      <th>Subsystem</th>
+      <th>What It Does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0006</td>
+      <td>fs · mm · block</td>
+      <td>Ephemeral and recomputable semantics. KV-cache data that can be regenerated on eviction gets tagged as <code>KAIRO_RWF_RECOMPUTE</code>, enabling smarter eviction decisions downstream.</td>
+    </tr>
+    <tr>
+      <td>0007</td>
+      <td>blk-mq · blk_types</td>
+      <td>Model/session/lifetime metadata. Each request can carry <code>model_id</code>, <code>session_id</code>, <code>cache_pool_id</code>, and a <code>lifetime_class</code> (short / session / model / persistent).</td>
+    </tr>
+    <tr>
+      <td>0008 / 7.5</td>
+      <td>blk_types · NVMe host</td>
+      <td>Generic backend mapping scaffold. Introduces <code>kairo_backend_class</code> and <code>kairo_backend_caps</code>. Feature-detected hooks for NVMe Streams, FDP, and ZNS — all currently no-ops with safe fallback.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Reliability: Anti-Starvation &amp; Tag Reservation (Patches 0011–0012)</h3>
+
+<p>
+  Prioritizing decode reads aggressively risks starving writes entirely. Patches
+  0011 and 0012 address this head-on.
+</p>
+
+<div class="callout callout-warn">
+  <div class="callout-label">Starvation Risk</div>
+  <p>
+    Indefinite deferral of prefill writes under sustained decode pressure would
+    eventually deadlock inference. Patch 0011 adds a per-write expiry deadline
+    via the <code>kairo_write_deadline_ms</code> sysfs tunable. Patch 0012
+    reserves 1/8 of hardware queue tags specifically for decode reads, preventing
+    tag starvation upstream of the scheduler entirely.
+  </p>
+</div>
+
+<h3>Performance: O(1) Dispatch &amp; BPF (Patches 0013, 0016)</h3>
+
+<p>
+  The original mq-deadline FIFO scan under spinlock is O(n). Patch 0013 replaces
+  this with per-priority dedicated FIFO lists for decode and prefetch — O(1)
+  dispatch at any queue depth. Patch 0016 takes this further, adding a
+  <code>BPF_PROG_TYPE_KAIRO_SCHED</code> hook for fully programmable dispatch
+  arbitration, with additive fallback to static logic when no BPF program is loaded.
+</p>
+
+<h3>Advanced Features: Fairness, Admission, Heatmap (Patches 0020, 0029, 0030)</h3>
+
+<p>
+  The later patches in the series push Kairo toward multi-tenant inference scenarios
+  and smarter eviction policy.
+</p>
+
+<div class="timeline">
+  <div class="tl-item">
+    <div class="tl-patch">0020 · mq-deadline</div>
+    <div class="tl-head">Model/Session Fairness</div>
+    <p>Credit-based decode scheduling for multi-tenant AI inference. Each model
+    and session gets a decode credit budget with periodic refill, noisy-session
+    detection, and five sysfs tunables.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0026 · blk-cgroup</div>
+    <div class="tl-head">AI I/O Cgroup Controller</div>
+    <p>A blk-cgroup policy scaffold for AI inference containers, with per-class
+    weights and per-entity stats. Cgroup interface files are documented with
+    implementation deferred pending upstream feedback.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0027 · io_uring / uapi</div>
+    <div class="tl-head">KV Region Hints</div>
+    <p>Introduces <code>IORING_REGISTER_KAIRO_KV_REGION</code> opcodes (42, 43)
+    so runtimes can register named memory regions with type, model/session IDs,
+    and lifetime class — flowing into the scheduler as richer placement hints.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0028 · blk-mq</div>
+    <div class="tl-head">Recompute-Aware Eviction</div>
+    <p>An eviction-class model with a scoring policy that penalizes eviction of
+    decode-hot, non-recomputable data. 10 sysfs eviction counters for observability.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0029 · blk-mq</div>
+    <div class="tl-head">KV Residency Heatmap</div>
+    <p>A 1024-entry fixed-array heatmap tracking per-region access frequency and
+    recency. Heat scoring uses 4 weights plus age decay. 9 sysfs counters.</p>
+  </div>
+  <div class="tl-item">
+    <div class="tl-patch">0030 · blk-mq</div>
+    <div class="tl-head">Flash-Backed Admission Control</div>
+    <p>A KV-cache admission scaffold deciding which objects merit flash storage.
+    9 admission decisions, 8 config fields, 7 priority-ordered policy rules.</p>
+  </div>
+</div>
+
+<!-- ===== HINTS API ===== -->
+<h2 id="hints">The kairo_hints.h API</h2>
+
+<p>
+  The user-space contract lives in <code>include/kairo_hints.h</code> — 263 lines
+  of carefully annotated C that defines the full Kairo hint surface. A few key
+  excerpts illustrate the design philosophy.
+</p>
+
+<h3>I/O Classification Flags</h3>
+
+<pre><code>/* ioprio mapping (current implementation) */
+#define KAIRO_CLASS_DECODE_READ   0  /* → IOPRIO_CLASS_RT, prio 0 */
+#define KAIRO_CLASS_PREFETCH_READ 1  /* → IOPRIO_CLASS_RT, prio 1 */
+#define KAIRO_CLASS_PREFILL_WRITE 2  /* → IOPRIO_CLASS_BE, prio 7 */
+#define KAIRO_CLASS_EVICT         3  /* → discard / BE prio 6 fallback */
+
+/* RWF flags for future io_uring path */
+#define KAIRO_RWF_DECODE    (1ULL << 28)
+#define KAIRO_RWF_PREFETCH  (1ULL << 29)
+#define KAIRO_RWF_PREFILL   (1ULL << 30)
+#define KAIRO_RWF_RECOMPUTE (1ULL << 31)</code></pre>
+
+<h3>Placement Metadata</h3>
+
+<pre><code>struct kairo_user_placement_hint {
+    uint32_t model_id;
+    uint32_t session_id;
+    uint32_t cache_pool_id;
+    uint32_t placement_group;
+    uint32_t lifetime_class;  /* short / session / model / persistent */
+    uint32_t flags;
+};</code></pre>
+
+<h3>KV Region Hints</h3>
+
+<pre><code>struct kairo_user_kv_region_hint {
+    uint32_t region_id;
+    uint32_t region_type;    /* decode / prefetch / session / model / recomputable */
+    uint32_t model_id;
+    uint32_t session_id;
+    uint64_t file_offset;
+    uint64_t length;
+    uint32_t lifetime_class;
+    uint32_t flags;
+};</code></pre>
+
+<p>
+  The header is deliberately annotated as a local RFC/POC — not a proposed stable
+  UAPI. This is important: Kairo is doing kernel-space research, not trying to land
+  patches upstream yet. The annotations like <code>COMPILE-TARGET</code>,
+  <code>CONCEPTUAL-HOOK</code>, and <code>VERSION-SENSITIVE</code> in the kernel
+  patches themselves make the maturity of each hook point explicit.
+</p>
+
+<!-- ===== OBSERVABILITY ===== -->
+<h2 id="observability">Observability Stack</h2>
+
+<p>
+  A key design principle throughout Kairo is that every code path must be
+  observable. Patches 0009 and 0017 build out a comprehensive observability
+  layer.
+</p>
+
+<h3>Sysfs Counters (Patch 0009)</h3>
+
+<p>
+  Patch 0009 adds debugfs counters that prove the Kairo code paths are actually
+  executing — dispatch counts, merge instrumentation, request-size histograms,
+  placement/lifetime counters, and backend mapping outcomes. The validation script
+  <code>scripts/validate_kairo_runtime.sh</code> uses these to confirm that
+  Kairo counters move under the synthetic KV-cache workload.
+</p>
+
+<h3>Kernel Tracepoints (Patch 0017)</h3>
+
+<p>
+  Stage 8 adds 9 <code>TRACE_EVENT</code> definitions in
+  <code>include/trace/events/kairo.h</code>, covering the full request lifecycle:
+  classification, scheduler decisions, dispatch, demotion, merge, semantic flags,
+  placement metadata, and backend mapping. Companion bpftrace scripts
+  (<code>scripts/bpftrace/kairo_*.bt</code>) make these immediately useful for
+  profiling.
+</p>
+
+<h3>Adaptive Latency Controller (Patch 0018)</h3>
+
+<p>
+  Patch 0018 closes the loop with an adaptive controller that observes
+  <code>decode_p99_us</code> in real time and adjusts decode/prefetch budgets
+  accordingly. Three modes: <code>OFF</code>, <code>OBSERVE</code>, and
+  <code>ADAPTIVE</code>. The decode latency histogram from patch 0023 feeds
+  this controller with 10 buckets from 0–10 µs to >5 ms.
+</p>
+
+<!-- ===== BENCHMARK ===== -->
+<h2>The Benchmark Harness</h2>
+
+<p>
+  Kairo's benchmark (<code>bench/kairo_bench.c</code>) is a pthread-based
+  synthetic workload designed to mimic KV-cache I/O patterns on a real NVMe
+  device. It uses <code>pread()</code> and <code>pwrite()</code> with
+  <code>O_DIRECT</code>, aligned buffers via <code>posix_memalign()</code>,
+  and per-thread <code>ioprio</code> classification.
+</p>
+
+<p>
+  Build and run a full A/B experiment comparing baseline vs Kairo in three commands:
+</p>
+
+<pre><code># Build
+gcc -O2 -Wall -pthread -Iinclude -o kairo_bench bench/kairo_bench.c
+
+# Baseline
+./scripts/run_baseline.sh /mnt/nvme/kairo.test nvme0n1
+
+# Kairo POC
+./scripts/set_mq_deadline.sh nvme0n1
+./scripts/run_kairo_poc.sh /mnt/nvme/kairo.test nvme0n1</code></pre>
+
+<p>
+  The A/B runner (<code>scripts/run_ab_experiment.sh</code>) compares both on
+  the same device and saves structured results. A multi-session runner
+  (<code>scripts/run_multisession_experiment.sh</code>) stresses model/session
+  fan-out scenarios.
+</p>
+
+<!-- ===== METRICS ===== -->
+<h2>What Kairo Measures</h2>
+
+<p>
+  The primary validation metric is <code>decode_p99_us</code> — the 99th-percentile
+  decode read latency under mixed prefill-write pressure. The constraint is equally
+  important: write throughput must not collapse.
+</p>
+
+<div class="metrics-grid">
+  <div class="metric-card">
+    <span class="metric-val">p99</span>
+    <span class="metric-label">decode_p99_us<br/>(primary target)</span>
+  </div>
+  <div class="metric-card">
+    <span class="metric-val">p95</span>
+    <span class="metric-label">decode_p95_us<br/>(secondary)</span>
+  </div>
+  <div class="metric-card">
+    <span class="metric-val">avg</span>
+    <span class="metric-label">decode_avg_us<br/>(baseline ref)</span>
+  </div>
+  <div class="metric-card">
+    <span class="metric-val">MB/s</span>
+    <span class="metric-label">decode_read_MBps<br/>(throughput)</span>
+  </div>
+  <div class="metric-card">
+    <span class="metric-val">MB/s</span>
+    <span class="metric-label">write_MBps<br/>(must not collapse)</span>
+  </div>
+</div>
+
+<!-- ===== OPEN QUESTIONS ===== -->
+<h2>What Remains Open</h2>
+
+<p>
+  Kairo's documentation is refreshingly honest about what hasn't been settled.
+  The <code>docs/patch_series.md</code> "What Remains Open" section lists the
+  genuine design questions — not marketing hedges:
+</p>
+
+<div class="callout callout-warn">
+  <div class="callout-label">Open Design Questions</div>
+  <p>
+    Does merge bias belong in generic <code>blk-merge</code> or only in
+    Kairo-classified paths? Should <code>RWF_KAIRO_*</code> stay RFC-only?
+    Does the generic <code>kairo_backend_class</code> abstraction map usefully
+    to real NVMe Streams/FDP/ZNS capabilities? Does physical placement via
+    backend hooks give measurable improvement over software-only grouping?
+    These are unanswered — and Kairo's benchmark harness is exactly how they
+    will be answered.
+  </p>
+</div>
+
+<!-- ===== WHAT'S NEXT ===== -->
+<h2>What's Next for Kairo</h2>
+
+<p>
+  The validation roadmap is tracked in <code>docs/tested_kernel_matrix.md</code>
+  and <code>docs/full_architecture_status.md</code>. The near-term focus is on
+  three things: proving patch 0001 builds and applies cleanly on Linux 6.8.x,
+  validating that <code>decode_p99_us</code> improves measurably in the synthetic
+  A/B experiment, and wiring real NVMe feature detection into the backend mapping
+  scaffold.
+</p>
+
+<p>
+  The longer arc — blk-cgroup AI policy, programmable BPF dispatch, KV admission
+  control — builds the case for a fundamentally smarter storage substrate for
+  inference infrastructure. Whether any of this lands upstream is an open question
+  that depends on the benchmark data making a compelling argument.
+</p>
+
+<div class="callout callout-success">
+  <div class="callout-label">The Bet</div>
+  <p>
+    Storage is the forgotten bottleneck in AI inference. CPUs, GPUs, and memory
+    get all the attention. Kairo is betting that a relatively small number of
+    targeted kernel patches can meaningfully reduce decode tail latency — on
+    commodity NVMe SSDs that every inference deployment already has.
+  </p>
+</div>
+
+<div class="post-footer">
+  <p>Read the code, run the benchmarks, and see what happens when the kernel
+  learns to think about tokens.</p>
+  <a class="cta" href="https://github.com/manishklach/kairo-io" target="_blank">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    View manishklach/kairo-io on GitHub
+  </a>
+</div>
+
+</div><!-- .prose -->
+</main>
+
+</body>
+</html>
